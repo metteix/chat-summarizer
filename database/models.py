@@ -1,4 +1,3 @@
-# database/models.py
 from sqlalchemy import Column, Integer, String, DateTime, BigInteger
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
