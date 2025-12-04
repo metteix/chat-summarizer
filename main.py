@@ -6,7 +6,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 import asyncio
 
-from configs.congig import BOT_TOKEN
+from configs.config import BOT_TOKEN
 
 logging.basicConfig(level=logging.INFO)
 
