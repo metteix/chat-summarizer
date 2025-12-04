@@ -31,3 +31,17 @@ def get_mode_settings_kb(current_mode: str) -> InlineKeyboardMarkup:
     builder.button(text="🔙 Назад", callback_data="settings_home")
     builder.adjust(1)
     return builder.as_markup()
+
+
+def get_summary_fields_kb(active_fields: list) -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+
+    for code, label in SUMMARY_FIELDS_Config.items():
+        # Ставим галочку, если поле есть в списке активных
+        status = "✅" if code in active_fields else "❌"
+        text = f"{status} {label}"
+        builder.button(text=text, callback_data=f"toggle_field_{code}")
+
+    builder.adjust(2)  # По 2 кнопки в ряд
+    builder.button(text="🆗 OK (Готово)", callback_data="settings_home")
+    return builder.as_markup()

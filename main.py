@@ -7,7 +7,11 @@ from configs.config import BOT_TOKEN
 
 from src.entry.handlers import router as entry_router
 
+from database import init_db
+
 async def main() -> None:
+
+    await init_db()
     logging.basicConfig(level=logging.INFO)
     
     bot = Bot(
@@ -23,5 +27,7 @@ async def main() -> None:
     await dp.start_polling(bot)
     
 if __name__ == "__main__":
-    asyncio.run(main())
-
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print('bot stopped')
