@@ -2,10 +2,10 @@ import asyncio
 import logging
 
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
-from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage
 from configs.config import BOT_TOKEN
+
+from src.entry.handlers import router as entry_router
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO)
@@ -14,8 +14,11 @@ async def main() -> None:
         token=BOT_TOKEN
     )
     
-    dp = Dispatcher(storage=MemoryStorage()) 
-
+    dp = Dispatcher(storage=MemoryStorage())
+    dp.include_router(
+        entry_router,
+        )
+    
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
     
