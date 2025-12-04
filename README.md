@@ -337,27 +337,21 @@ bot/
 ## Диаграмма работы бота
 
 graph TD
-%% Начало работы
-    Start[Добавление в чат] --> Auth[Приветственное сообщение]
-%% Переход в главное меню
+    Start[Начало работы Start] --> Auth[Приветственное сообщение]
     Auth --> MainMenu[Главное меню]
-%% Главное меню
-    MainMenu -->|/settings| Settings[Настройки режима]
-    MainMenu -->|/summary| Sum["Получить сводку за 24 часа"]
-    MainMenu -->|/tag| Tag[Список упоминаний]
-    MainMenu -->|/tasks| Tasks[Задачи и поручения]
-    MainMenu -->|/hashtag| Hashtag[Хэштеги]
-    MainMenu -->|/docs| Docs[Документы и файлы]
-    MainMenu -->|/links| Links[Все ссылки]
-    MainMenu -->|/stop| Stop[Отключить анализ чата]
-    MainMenu -->|/help| Help[Краткая справка]
-%% Настройки
-    Settings -->|Настройки summary| Settings_sum[Настройка состава данных сводки]
-    Settings -->|Настройки режима| Settings_mod[Выбор режима]
-%% Выбор режима
-    Settings_mod -->|Автоматический| Mod_avt[Автоматическая отправка сводки]
-    Settings_mod -->|Ручной| Mod_notavt[Ручной режим]
-%% Опции автоматического режима
-    Mod_avt -->|Выбор времени| Time["Выбор времени 00:00-23:00"]
-%% Настройки summary
-    Settings_sum -->|" Выбор отображаемых категорий "| Choose_com["Выбор категорий (напр. /tag)"]
+    MainMenu --> |"Настройки режима"| Settings[Настройки режима]
+    Settings --> |"Настройка сводки"| summary[Сводка]
+    summary --> |"Получить сводку за 24 часа"| Sum
+    MainMenu --> |"Список упоминаний"| tag[Теги]
+    MainMenu --> |"Задачи и поручения"| tasks[Задачи]
+    MainMenu --> |"Документы и файлы"| docs[Документы]
+    MainMenu --> |"Все ссылки"| links[Ссылки]
+    MainMenu --> |"Отключить анализ"| stop[Stop]
+    MainMenu --> |"Краткая справка"| help[Help]
+    Settings --> |"Настройки сводки"| Settings_sum[Настройка сводки]
+    Settings_sum --> |"Выбор режима"| Settings_mod[Выбор режима]
+    Settings_mod --> |"Автоматическая отправка сводки"| Mod_avt[Автоматический]
+    Settings_mod --> |"Ручной режим"| Mod_notavt[Ручной режим]
+    Settings_mod --> |"Выбор времени"| Mod_time[Выбор времени]
+    Settings_mod --> |"Выбор категории"| Choose_com[Выбор категорий]
+    Choose_com --> |"Выбор категории (например, #tag)"| tag[Теги]
