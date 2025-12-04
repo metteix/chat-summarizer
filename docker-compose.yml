@@ -1,15 +1,16 @@
 version: '3.8'
+
 services:
   db:
     image: postgres:15-alpine
-    container_name: bot_postgres
+    container_name: bot_postgres_container
     restart: always
     environment:
       POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASS:-postgres}
-      POSTGRES_DB: ${DB_NAME:-telegram_bot_db}
+      POSTGRES_PASSWORD: ${DB_PASS:-summarize}
+      POSTGRES_DB: ${DB_NAME:-my_bot_db}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
