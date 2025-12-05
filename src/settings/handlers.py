@@ -4,8 +4,9 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import StatesGroup, State
 from aiogram.enums import ChatMemberStatus
+from database.crud import get_chat_settings, update_chat_settings
 
-# Импортируем клавиатуры (они остаются теми же)
+
 from keyboards import (
     get_main_settings_kb,
     get_mode_settings_kb,
@@ -15,173 +16,162 @@ from keyboards import (
 
 router = Router()
 
-# --- Имитация БД ---
-# Теперь ключом является chat_id (ID группы), а не пользователя
-MOCK_DB = {}
-
-
-def get_chat_config(chat_id: int):
-    if chat_id not in MOCK_DB:
-        MOCK_DB[chat_id] = {
-            "mode": "manual",
-            "time": None,
-            "fields": ["tasks", "links", "hashtags", "tags"]
-        }
-    return MOCK_DB[chat_id]
-
-
-def update_chat_config(chat_id: int, key: str, value):
-    if chat_id not in MOCK_DB:
-        get_chat_config(chat_id)
-    MOCK_DB[chat_id][key] = value
-
-
-# -------------------
 
 class SettingsStates(StatesGroup):
     waiting_for_time = State()
 
 
-# --- Помощник: Проверка на админа ---
+# === ПЕРЕВОДЧИК (MAPPING) ===
+# Слева: Твои ключи из клавиатуры
+# Справа: Названия колонок в таблице Chats (models.py)
+FIELD_MAPPING = {
+    "tasks": "include_tasks",
+    "links": "include_links",
+    "files": "include_docs",  # Кнопка 'files' -> колонка 'include_docs'
+    "tags": "include_mentions",  # Кнопка 'tags' -> колонка 'include_mentions' (предполагаю)
+
+    # ВНИМАНИЕ: Убедись, что в models.py в классе Chat есть 'include_hashtags'
+    # Если нет — добавь в БД или закомментируй эту строку
+    "hashtags": "include_hashtags"
+}
+
+
 async def is_user_admin(chat: types.Chat, user_id: int, bot: Bot) -> bool:
-    # В личке всегда админ
     if chat.type == 'private':
         return True
-
     member = await bot.get_chat_member(chat.id, user_id)
     return member.status in [ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR]
 
 
-# --- Текстовый помощник ---
-def get_status_text(chat_id: int, title: str):
-    config = get_chat_config(chat_id)
-    mode_str = "🖐 Ручной" if config['mode'] == 'manual' else f"⏰ Авто ({config['time']})"
+async def get_status_text(chat_id: int, title: str):
+    chat = await get_chat_settings(chat_id)
+    mode_str = "Авто" if chat.is_auto_summary else "Ручной"
+    time_str = f"({chat.summary_time})" if chat.is_auto_summary else ""
 
-    fields_names = [SUMMARY_FIELDS_Config[f] for f in config['fields'] if f in SUMMARY_FIELDS_Config]
-    fields_str = ", ".join(fields_names) if fields_names else "Ничего"
+    # Собираем красивые названия включенных полей
+    active_names = []
+    # Проверяем базу и добавляем названия из конфига
+    if chat.include_tasks: active_names.append(SUMMARY_FIELDS_Config["tasks"])
+    if chat.include_links: active_names.append(SUMMARY_FIELDS_Config["links"])
+    if chat.include_docs: active_names.append(SUMMARY_FIELDS_Config["files"])
+    if chat.include_mentions: active_names.append(SUMMARY_FIELDS_Config["tags"])
+    if chat.include_mentions: active_names.append(SUMMARY_FIELDS_Config["hashtags"])
+
+    fields_str = ", ".join(active_names) if active_names else "Ничего"
 
     return (
         f"⚙️ **Настройки для чата:** {title}\n\n"
-        f"**Режим:** {mode_str}\n"
+        f"**Режим:** {mode_str} {time_str}\n"
         f"**Состав Summary:** {fields_str}"
     )
 
-
-# ================= ХЭНДЛЕРЫ =================
-
 @router.message(Command("settings"))
 async def cmd_settings(message: types.Message, bot: Bot):
-    # Проверяем права при вызове команды
     if not await is_user_admin(message.chat, message.from_user.id, bot):
-        await message.reply("⛔ Настройки доступны только администраторам группы.")
+        await message.reply("Настройку бота может осуществлять только админ.")
         return
-
-    # Используем message.chat.id (ID группы)
-    text = get_status_text(message.chat.id, message.chat.title or "Private")
+    text = await get_status_text(message.chat.id, message.chat.title or "Chat")
     await message.answer(text, reply_markup=get_main_settings_kb(), parse_mode="Markdown")
 
-
-# Фильтр для всех коллбэков настроек: проверяем админа
 @router.callback_query(F.data.startswith(("settings_", "set_mode_", "toggle_field_")))
 async def settings_callback_router(callback: types.CallbackQuery, state: FSMContext, bot: Bot):
-    # 1. Проверка прав (кто нажал кнопку?)
     if not await is_user_admin(callback.message.chat, callback.from_user.id, bot):
-        await callback.answer("⛔ Только админы могут менять настройки!", show_alert=True)
+        await callback.answer("Недостаточно прав!", show_alert=True)
         return
-
-    # 2. Получаем ID группы (где нажали кнопку)
     chat_id = callback.message.chat.id
     data = callback.data
-
-    # --- ЛОГИКА НАВИГАЦИИ ---
-
-    # Главное меню
+    chat_settings = await get_chat_settings(chat_id)
     if data == "settings_home":
         await state.clear()
-        text = get_status_text(chat_id, callback.message.chat.title)
-        # Важно: используем try-except, чтобы не падало, если текст не изменился
+        text = await get_status_text(chat_id, callback.message.chat.title)
         try:
             await callback.message.edit_text(text, reply_markup=get_main_settings_kb(), parse_mode="Markdown")
         except:
             await callback.answer()
-
-    # Меню режима
     elif data == "settings_mode_menu":
-        config = get_chat_config(chat_id)
+        cur_mode = "auto" if chat_settings.is_auto_summary else "manual"
         await callback.message.edit_text(
-            "Выберите режим работы бота в этой группе:",
-            reply_markup=get_mode_settings_kb(config['mode'])
+            "Выберите режим работы:",
+            reply_markup=get_mode_settings_kb(cur_mode)
         )
         await callback.answer()
 
-    # Установка ручного режима
     elif data == "set_mode_manual":
-        update_chat_config(chat_id, "mode", "manual")
-        await callback.answer("✅ Установлен ручной режим")
-        # Перерисовываем меню режима
+        await update_chat_settings(chat_id, is_auto_summary=False)
+        text = await get_status_text(chat_id, callback.message.chat.title)
+        await callback.message.edit_text(text, reply_markup=get_main_settings_kb(), parse_mode="Markdown")
+        await callback.answer("Включен ручной режим")
+
+    elif data in ["set_mode_auto_init", "set_mode_auto_change"]:  #вот тут не пон говорим ли мы текущее если до этого у нас была только автоматическая настройка
         await callback.message.edit_text(
-            "Выберите режим работы бота в этой группе:",
-            reply_markup=get_mode_settings_kb("manual")
+            f"Введите время (ЧЧ:ММ). Текущее: {chat_settings.summary_time}"
         )
-
-    # Старт ввода времени (Авто режим)
-    elif data in ["set_mode_auto_init", "set_mode_auto_change"]:
-        config = get_chat_config(chat_id)
-        msg = "Введите время отправки (МСК) в формате **ЧЧ:ММ**.\nБот будет присылать отчет в этот чат."
-        if config['time']:
-            msg = f"Текущее время: {config['time']}.\n" + msg
-
-        await callback.message.edit_text(msg, parse_mode="Markdown")
         await state.set_state(SettingsStates.waiting_for_time)
         await callback.answer()
 
-    # Меню полей Summary
+        # --- SUMMARY FIELDS MENU ---
     elif data == "settings_summary_menu":
-        config = get_chat_config(chat_id)
+        # Формируем список ключей ДЛЯ КЛАВИАТУРЫ (tasks, files, tags...)
+        active_list_kb = []
+        if chat_settings.include_tasks: active_list_kb.append("tasks")
+        if chat_settings.include_links: active_list_kb.append("links")
+        if chat_settings.include_docs: active_list_kb.append("files")
+        if chat_settings.include_mentions: active_list_kb.append("tags")
+        if chat_settings.include_mentions: active_list_kb.append("hashtags")
+
         await callback.message.edit_text(
-            "Что включать в отчет по этой группе?",
-            reply_markup=get_summary_fields_kb(config['fields'])
+            "Выберите, что включать в сводку:",
+            reply_markup=get_summary_fields_kb(active_list_kb)
         )
         await callback.answer()
 
-    # Переключение галочек
     elif data.startswith("toggle_field_"):
-        field_code = data.replace("toggle_field_", "")
-        config = get_chat_config(chat_id)
-        current_fields = list(config['fields'])
+        field_code = data.replace("toggle_field_", "")  # Например: "files"
 
-        if field_code in current_fields:
-            current_fields.remove(field_code)
-        else:
-            current_fields.append(field_code)
+        # Переводим "files" -> "include_docs"
+        db_column = FIELD_MAPPING.get(field_code)
 
-        update_chat_config(chat_id, "fields", current_fields)
+        if db_column:
+            # Получаем текущее значение из БД (True/False)
+            # getattr позволяет взять поле по имени строки
+            try:
+                current_val = getattr(chat_settings, db_column)
 
-        await callback.message.edit_reply_markup(
-            reply_markup=get_summary_fields_kb(current_fields)
-        )
+                # Записываем обратное значение
+                await update_chat_settings(chat_id, **{db_column: not current_val})
+
+                # Обновляем клавиатуру (чтобы галочка переключилась)
+                # Нужно заново считать данные
+                new_settings = await get_chat_settings(chat_id)
+
+                new_active_list = []
+                if new_settings.include_tasks: new_active_list.append("tasks")
+                if new_settings.include_links: new_active_list.append("links")
+                if new_settings.include_docs: new_active_list.append("files")
+                if new_settings.include_mentions: new_active_list.append("tags")
+                if new_settings.include_mentions: new_active_list.append("hashtags")
+
+                await callback.message.edit_reply_markup(
+                    reply_markup=get_summary_fields_kb(new_active_list)
+                )
+            except AttributeError:
+                await callback.answer(f"Ошибка: поле {db_column} не найдено в БД", show_alert=True)
+
         await callback.answer()
 
-
-# --- Хэндлер ловли времени (Ввод текста) ---
+#мб стоит его потом в другой файл дропнуть
 @router.message(SettingsStates.waiting_for_time)
-async def process_time_group(message: types.Message, state: FSMContext, bot: Bot):
-    # Тут тоже стоит проверить админа, вдруг кто-то левый написал время пока админ ждал
-    if not await is_user_admin(message.chat, message.from_user.id, bot):
-        return  # Просто игнорируем сообщения не-админов в состоянии настройки
+async def process_time_input(message: types.Message, state: FSMContext):
+    if re.match(r"^\d{1,2}:\d{2}$", message.text):
+        await update_chat_settings(
+            message.chat.id,
+            is_auto_summary=True,
+            summary_time=message.text
+        )
+        await message.answer(f"✅ Время {message.text} установлено!")
+        await state.clear()
 
-    time_input = message.text.strip()
-    if not re.match(r"^(0[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$", time_input):
-        await message.reply("❌ Неверный формат. Нужно ЧЧ:ММ (например, 10:00).")
-        return
-
-    chat_id = message.chat.id
-    update_chat_config(chat_id, "mode", "auto")
-    update_chat_config(chat_id, "time", time_input)
-
-    await state.clear()
-    await message.answer(f"✅ Для этого чата включен авто-режим на **{time_input}**.")
-
-    # Можно вернуть меню настроек
-    text = get_status_text(chat_id, message.chat.title)
-    await message.answer(text, reply_markup=get_main_settings_kb(), parse_mode="Markdown")
+        text = await get_status_text(message.chat.id, message.chat.title)
+        await message.answer(text, reply_markup=get_main_settings_kb(), parse_mode="Markdown")
+    else:
+        await message.reply("Формат: 09:00")
