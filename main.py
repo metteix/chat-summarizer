@@ -27,9 +27,12 @@ class DbSessionMiddleware(BaseMiddleware):
 
 
 async def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    await init_db()
+    logging.basicConfig(level=logging.INFO)
+    
+    bot = Bot(
+        token=BOT_TOKEN,
+        #link_preview
     )
 
     bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
