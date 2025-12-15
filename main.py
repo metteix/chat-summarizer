@@ -3,12 +3,13 @@ import logging
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.client.bot import DefaultBotProperties
 
 from configs.config import BOT_TOKEN
 
 from src.entry.handlers import router as entry_router
-from src.hashtags.handlers import router as hashtags_router
-from src.tags.handlers import router as tags_router
+from src.tasks.handlers import router as tasks_router
+#from src.settings.handlers import router as settings_router
 
 from database import init_db
 from database.session import async_session
@@ -32,14 +33,12 @@ async def main() -> None:
     
     bot = Bot(
         token=BOT_TOKEN,
-        #link_preview
+        default=DefaultBotProperties(parse_mode="HTML")
     )
 
-    bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
     dp = Dispatcher(storage=MemoryStorage())
-    dp.include_router(
-        entry_router,
-        )
+    dp.include_router(entry_router)
+    dp.include_router(tasks_router)
     
     dp.message.middleware(DbSessionMiddleware(async_session))
     dp.message.middleware(CollectorMiddleware())

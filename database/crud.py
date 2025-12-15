@@ -1,36 +1,8 @@
 from datetime import datetime, timedelta
 from sqlalchemy import select
-from sqlalchemy.dialects.postgresql import insert
 from database.session import async_session
-from database.models import Chat, Message, Mention, Hashtag, Link, Document, Task
+from database.models import Mention, Hashtag, Link, Document, Task
 
-
-async def register_chat(chat_id: int, title: str):
-    async with async_session() as session:
-        # Пытаемся вставить чат. Если такой ID уже есть — ничего не делаем.
-        stmt = insert(Chat).values(
-            id=chat_id, 
-            title=title
-        ).on_conflict_do_nothing()
-        
-        await session.execute(stmt)
-        await session.commit()
-
-# --- 2. ЛОГИРОВАНИЕ СООБЩЕНИЙ (Для ML) ---
-
-async def log_message(chat_id: int, message_id: int, user_id: int, username: str, text: str):
-    async with async_session() as session:
-        msg = Message(
-            chat_id=chat_id,
-            telegram_message_id=message_id,
-            user_id=user_id,
-            username=username,
-            text=text
-        )
-        session.add(msg)
-        await session.commit()
-
-# --- 3. ДОБАВЛЕНИЕ СУЩНОСТЕЙ (Tags, Links, Tasks...) ---
 
 async def add_mention(chat_id: int, message_id: int, username: str):
     async with async_session() as session:
