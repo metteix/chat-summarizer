@@ -29,7 +29,7 @@ class DbSessionMiddleware(BaseMiddleware):
 
 async def main() -> None:
     await init_db()
-    logging.basicConfig(level=logging.INFO)
+    #logging.basicConfig(level=logging.INFO)
     
     bot = Bot(
         token=BOT_TOKEN,
@@ -40,8 +40,8 @@ async def main() -> None:
     dp.include_router(entry_router)
     dp.include_router(tasks_router)
     
-    dp.message.middleware(DbSessionMiddleware(async_session))
-    dp.message.middleware(CollectorMiddleware())
+    dp.message.outer_middleware(DbSessionMiddleware(async_session))
+    dp.message.outer_middleware(CollectorMiddleware())
     
     await bot.delete_webhook(drop_pending_updates=True)
 

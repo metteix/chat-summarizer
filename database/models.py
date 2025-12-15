@@ -38,7 +38,7 @@ class Document(Base):
     id = Column(Integer, primary_key=True)
     chat_id = Column(BigInteger, nullable=False)
     message_id = Column(BigInteger, nullable=False)
-    file_id = Column(BigInteger, nullable=False)
+    file_id = Column(String(255), nullable=False)
     document_name = Column(String(255), nullable=False)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
@@ -65,7 +65,7 @@ class Task(Base):
     id = Column(Integer, primary_key=True)
     chat_id = Column(BigInteger, nullable=False)
     message_id = Column(BigInteger, nullable=False)
-    task_name = Column(Text, nullable=False)
+    task_name = Column(Text, nullable=True)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
     

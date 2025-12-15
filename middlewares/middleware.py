@@ -12,6 +12,11 @@ class CollectorMiddleware(BaseMiddleware):
         event: Message,
         data: Dict[str, Any]
     ) -> Any:
+        print(f"DEBUG: Middleware сработала. Тип события: {type(event)}")
+        print(f"DEBUG: Ключи в data: {data.keys()}")
+        if "session" not in data:
+            print("🔴 ОШИБКА: Нет ключа 'session' в data! Проверь порядок регистрации мидлварей.")
+            return await handler(event, data)
         if not isinstance(event, Message) or "session" not in data:
             return await handler(event, data)
 
@@ -65,13 +70,15 @@ class CollectorMiddleware(BaseMiddleware):
 
         keywords = ["надо", "сделать", "дедлайн", "deadline", "task", "задание"]
         if any(word in text.lower() for word in keywords):
-            if len(text) > 10:
+            if len(text) > 5:
+                print(f"DEBUG: Обнаружена задача: {text}") 
                 session.add(Task(
                     chat_id=chat_id,
                     message_id=message_id,
-                    #task_name=task_name,
+                    task_name=text,
                     context=text
                 ))
+                print("сохранено")
 
         try:
             await session.commit()

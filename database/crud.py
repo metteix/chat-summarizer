@@ -4,18 +4,6 @@ from database.session import async_session
 from database.models import Mention, Hashtag, Link, Document, Task
 
 
-async def add_mention(chat_id: int, message_id: int, username: str):
-    async with async_session() as session:
-        obj = Mention(chat_id=chat_id, message_id=message_id, mentioned_username=username)
-        session.add(obj)
-        await session.commit()
-
-async def add_hashtag(chat_id: int, message_id: int, tag: str):
-    async with async_session() as session:
-        obj = Hashtag(chat_id=chat_id, message_id=message_id, hashtag=tag)
-        session.add(obj)
-        await session.commit()
-
 async def add_link(chat_id: int, message_id: int, url: str, description: str = None):
     async with async_session() as session:
         obj = Link(chat_id=chat_id, message_id=message_id, url=url, description=description)
