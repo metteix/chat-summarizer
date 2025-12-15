@@ -1,71 +1,100 @@
+from datetime import datetime, timedelta
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 from database.session import async_session
-from database.models import Tag, Hashtag, Link, Document
+from database.models import Chat, Message, Mention, Hashtag, Link, Document, Task
 
-async def save_object(obj):
-    """
-    Универсальная функция для сохранения любого объекта (тега, ссылки и т.д.)
-    """
+
+async def register_chat(chat_id: int, title: str):
     async with async_session() as session:
+        # Пытаемся вставить чат. Если такой ID уже есть — ничего не делаем.
+        stmt = insert(Chat).values(
+            id=chat_id, 
+            title=title
+        ).on_conflict_do_nothing()
+        
+        await session.execute(stmt)
+        await session.commit()
+
+# --- 2. ЛОГИРОВАНИЕ СООБЩЕНИЙ (Для ML) ---
+
+async def log_message(chat_id: int, message_id: int, user_id: int, username: str, text: str):
+    async with async_session() as session:
+        msg = Message(
+            chat_id=chat_id,
+            telegram_message_id=message_id,
+            user_id=user_id,
+            username=username,
+            text=text
+        )
+        session.add(msg)
+        await session.commit()
+
+# --- 3. ДОБАВЛЕНИЕ СУЩНОСТЕЙ (Tags, Links, Tasks...) ---
+
+async def add_mention(chat_id: int, message_id: int, username: str):
+    async with async_session() as session:
+        obj = Mention(chat_id=chat_id, message_id=message_id, mentioned_username=username)
         session.add(obj)
         await session.commit()
-        await session.refresh(obj)
-        return obj
 
-async def add_tag(message_id: int, tag_text: str):
-    tag = Tag(message_id=message_id, tag=tag_text)
-    await save_object(tag)
-
-async def get_tags_by_message(message_id: int):
-    """Получить все теги конкретного сообщения"""
+async def add_hashtag(chat_id: int, message_id: int, tag: str):
     async with async_session() as session:
-        query = select(Tag).where(Tag.message_id == message_id)
-        result = await session.execute(query)
-        return result.scalars().all()
+        obj = Hashtag(chat_id=chat_id, message_id=message_id, hashtag=tag)
+        session.add(obj)
+        await session.commit()
 
-async def add_hashtag(message_id: int, hashtag_text: str):
-    hashtag = Hashtag(message_id=message_id, hashtag=hashtag_text)
-    await save_object(hashtag)
-
-async def get_hashtags_by_message(message_id: int):
+async def add_link(chat_id: int, message_id: int, url: str, description: str = None):
     async with async_session() as session:
-        query = select(Hashtag).where(Hashtag.message_id == message_id)
-        result = await session.execute(query)
-        return result.scalars().all()
+        obj = Link(chat_id=chat_id, message_id=message_id, url=url, description=description)
+        session.add(obj)
+        await session.commit()
 
-async def add_link(message_id: int, url: str):
-    link = Link(message_id=message_id, url=url)
-    await save_object(link)
-
-async def get_links_by_message(message_id: int):
+async def add_document(chat_id: int, message_id: int, file_name: str, file_id: str, file_type: str):
     async with async_session() as session:
-        query = select(Link).where(Link.message_id == message_id)
-        result = await session.execute(query)
-        return result.scalars().all()
+        obj = Document(
+            chat_id=chat_id, 
+            message_id=message_id, 
+            file_name=file_name, 
+            file_id=file_id, 
+            file_type=file_type
+        )
+        session.add(obj)
+        await session.commit()
 
-async def add_document(message_id: int, name: str, path: str = None):
-    doc = Document(message_id=message_id, document_name=name, file_path=path)
-    await save_object(doc)
-
-async def get_documents_by_message(message_id: int):
+async def add_task(chat_id: int, message_id: int, description: str, assignee: str = None, deadline=None):
     async with async_session() as session:
-        query = select(Document).where(Document.message_id == message_id)
-        result = await session.execute(query)
-        return result.scalars().all()
+        task = Task(
+            chat_id=chat_id,
+            message_id=message_id,
+            description=description,
+            assignee=assignee,
+            deadline=deadline
+        )
+        session.add(task)
+        await session.commit()
 
-async def get_full_message_data(message_id: int):
+# --- 4. ПОЛУЧЕНИЕ ДАННЫХ (ДЛЯ СВОДКИ) ---
+
+async def get_daily_data(chat_id: int):
     """
-    Возвращает словарь со всеми данными по сообщению.
-    Пригодится для суммаризации.
+    Возвращает все данные по чату за последние 24 часа.
+    Идеально для Саши (генерация сводки).
     """
-    tags = await get_tags_by_message(message_id)
-    hashtags = await get_hashtags_by_message(message_id)
-    links = await get_links_by_message(message_id)
-    docs = await get_documents_by_message(message_id)
+    yesterday = datetime.now() - timedelta(days=1)
     
-    return {
-        "tags": [t.tag for t in tags],
-        "hashtags": [h.hashtag for h in hashtags],
-        "links": [l.url for l in links],
-        "documents": [d.document_name for d in docs]
-    }
+    async with async_session() as session:
+        # Запросы ко всем таблицам
+        tasks_q = select(Task).where(Task.chat_id == chat_id, Task.created_at >= yesterday)
+        mentions_q = select(Mention).where(Mention.chat_id == chat_id, Mention.created_at >= yesterday)
+        hashtags_q = select(Hashtag).where(Hashtag.chat_id == chat_id, Hashtag.created_at >= yesterday)
+        links_q = select(Link).where(Link.chat_id == chat_id, Link.created_at >= yesterday)
+        docs_q = select(Document).where(Document.chat_id == chat_id, Document.created_at >= yesterday)
+
+        return {
+            "tasks": (await session.execute(tasks_q)).scalars().all(),
+            "mentions": (await session.execute(mentions_q)).scalars().all(),
+            "hashtags": (await session.execute(hashtags_q)).scalars().all(),
+            "links": (await session.execute(links_q)).scalars().all(),
+            "documents": (await session.execute(docs_q)).scalars().all(),
+        }

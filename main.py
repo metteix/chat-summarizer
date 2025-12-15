@@ -3,9 +3,12 @@ import logging
 
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
+
 from configs.config import BOT_TOKEN
 
 from src.entry.handlers import router as entry_router
+from src.hashtags.handlers import router as hashtags_router
+from src.tags.handlers import router as tags_router
 
 from database import init_db
 from database.session import async_session
@@ -31,7 +34,8 @@ async def main() -> None:
         token=BOT_TOKEN,
         #link_preview
     )
-    
+
+    bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(
         entry_router,
@@ -41,10 +45,9 @@ async def main() -> None:
     dp.message.middleware(CollectorMiddleware())
     
     await bot.delete_webhook(drop_pending_updates=True)
+
     await dp.start_polling(bot)
-    
+
+
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print('bot stopped')
+    asyncio.run(main())
