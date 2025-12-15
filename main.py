@@ -1,19 +1,16 @@
 import asyncio
 import logging
-
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.bot import DefaultBotProperties
 
 from configs.config import BOT_TOKEN
-
 from src.entry.handlers import router as entry_router
 from src.tasks.handlers import router as tasks_router
-#from src.settings.handlers import router as settings_router
+# from src.catch.handlers import collector_router as catch_router # Если он пустой, можно пока убрать
 
 from database import init_db
 from database.session import async_session
-
 from middlewares.middleware import CollectorMiddleware
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -26,10 +23,10 @@ class DbSessionMiddleware(BaseMiddleware):
             data["session"] = session
             return await handler(event, data)
 
-
 async def main() -> None:
     await init_db()
-    #logging.basicConfig(level=logging.INFO)
+
+    logging.basicConfig(level=logging.INFO)
     
     bot = Bot(
         token=BOT_TOKEN,
@@ -37,16 +34,23 @@ async def main() -> None:
     )
 
     dp = Dispatcher(storage=MemoryStorage())
+
     dp.include_router(entry_router)
     dp.include_router(tasks_router)
-    
+    # dp.include_router(catch_router)
+
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
     dp.message.outer_middleware(CollectorMiddleware())
-    
+
+    dp.edited_message.outer_middleware(DbSessionMiddleware(async_session))
+    dp.edited_message.outer_middleware(CollectorMiddleware())
+
     await bot.delete_webhook(drop_pending_updates=True)
 
     await dp.start_polling(bot)
 
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("Бот остановлен.")

@@ -2,7 +2,6 @@ from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from database.models import Mention, Hashtag, Document, Link, Task
 
 class CollectorMiddleware(BaseMiddleware):
@@ -12,20 +11,16 @@ class CollectorMiddleware(BaseMiddleware):
         event: Message,
         data: Dict[str, Any]
     ) -> Any:
-        print(f"DEBUG: Middleware сработала. Тип события: {type(event)}")
-        print(f"DEBUG: Ключи в data: {data.keys()}")
-        if "session" not in data:
-            print("🔴 ОШИБКА: Нет ключа 'session' в data! Проверь порядок регистрации мидлварей.")
-            return await handler(event, data)
         if not isinstance(event, Message) or "session" not in data:
             return await handler(event, data)
 
         session: AsyncSession = data["session"]
-
         text = event.text or event.caption or ""
         chat_id = event.chat.id
         message_id = event.message_id
-        #user_name = event.from_user.full_name if event.from_user else "Unknown"
+
+        if text.startswith("/"):
+            return await handler(event, data)
 
         if event.document:
             new_doc = Document(
@@ -39,7 +34,6 @@ class CollectorMiddleware(BaseMiddleware):
 
         if event.entities or event.caption_entities:
             entities = event.entities or event.caption_entities
-            
             for entity in entities:
                 entity_value = entity.extract_from(text)
 
@@ -59,9 +53,9 @@ class CollectorMiddleware(BaseMiddleware):
                         url=url,
                         context=text
                     ))
-
+                
                 elif entity.type in ["mention", "text_mention"]:
-                    session.add(Mention(
+                     session.add(Mention(
                         chat_id=chat_id,
                         message_id=message_id,
                         mention=entity_value,
@@ -70,20 +64,18 @@ class CollectorMiddleware(BaseMiddleware):
 
         keywords = ["надо", "сделать", "дедлайн", "deadline", "task", "задание"]
         if any(word in text.lower() for word in keywords):
-            if len(text) > 5:
-                print(f"DEBUG: Обнаружена задача: {text}") 
+            if len(text) > 4:
                 session.add(Task(
                     chat_id=chat_id,
                     message_id=message_id,
-                    task_name=text,
+                    task_name=text, 
                     context=text
                 ))
-                print("сохранено")
 
         try:
             await session.commit()
         except Exception as e:
             await session.rollback()
-            print(f"Ошибка при сохранении данных в Middleware: {e}")
+            pass
 
         return await handler(event, data)
