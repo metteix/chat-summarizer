@@ -10,6 +10,7 @@ from src.tasks.handlers import router as tasks_router
 from src.links.handlers import router as links_router
 from src.catch.handlers import router as catch_router
 from src.mentions.handlers import router as mentios_router
+from src.docs.handlers import router as docs_router
 
 from database import init_db
 from database.session import async_session
@@ -41,6 +42,7 @@ async def main() -> None:
     dp.include_router(tasks_router)
     dp.include_router(links_router)
     dp.include_router(mentios_router)
+    dp.include_router(docs_router)
     dp.include_router(catch_router)
 
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
