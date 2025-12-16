@@ -7,7 +7,8 @@ from aiogram.client.bot import DefaultBotProperties
 from configs.config import BOT_TOKEN
 from src.entry.handlers import router as entry_router
 from src.tasks.handlers import router as tasks_router
-# from src.catch.handlers import collector_router as catch_router # Если он пустой, можно пока убрать
+from src.links.handlers import router as links_router
+from src.catch.handlers import router as catch_router # Если он пустой, можно пока убрать
 
 from database import init_db
 from database.session import async_session
@@ -37,7 +38,8 @@ async def main() -> None:
 
     dp.include_router(entry_router)
     dp.include_router(tasks_router)
-    # dp.include_router(catch_router)
+    dp.include_router(links_router)
+    dp.include_router(catch_router)
 
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
     dp.message.outer_middleware(CollectorMiddleware())
