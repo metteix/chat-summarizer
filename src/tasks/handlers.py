@@ -34,7 +34,3 @@ async def get_tasks_handler(message: types.Message):
         await message.answer(text)
     else:
         await message.answer("✅ Задач за последние 24 часа не найдено.")
-
-@router.message()
-async def echo_all(message: types.Message):
-    pass
