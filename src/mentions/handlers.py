@@ -1,48 +1,71 @@
 from aiogram import Router, types, F
 from sqlalchemy import select
 from database.session import async_session
-from database.models import Document
+from database.models import Mention
 import datetime
-import html
 
 router = Router()
 
-async def get_daily_documents(chat_id: int) -> list[Document]:
-    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+# --- 1. ЗАГЛУШКА ПОД ML (НЕЙРОСЕТЬ) ---
 
+async def ml_filter_important_mentions(mentions: list[Mention]) -> list[Mention]:
+    """
+    Функция-фильтр.
+    Сейчас: Возвращает список как есть.
+    В будущем: Отправит список в GPT, и GPT вернет только важные (где зовут по делу).
+    """
+    # TODO: СЮДА ПОДКЛЮЧИТЬ НЕЙРОНКУ
+    # Например: return await ask_gpt_to_filter(mentions)
+    
+    # Пока просто возвращаем всё, но можно отфильтровать, например, теги @all
+    filtered = [m for m in mentions if m.mention.lower() != "@all"]
+    return filtered
+
+async def get_daily_mentions(chat_id: int) -> list[Mention]:
+    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    
     async with async_session() as session:
-        query = select(Document).where(
-            Document.chat_id == chat_id,
-            Document.created_at >= yesterday
-        ).order_by(Document.created_at.desc())
+        query = select(Mention).where(
+            Mention.chat_id == chat_id,
+            Mention.created_at >= yesterday
+        ).order_by(Mention.created_at.desc())
         
         result = await session.execute(query)
-        return result.scalars().all()
-
-
-@router.message(F.text == "/docs")
-async def get_documents_handler(message: types.Message):
-    docs_to_display = await get_daily_documents(chat_id=message.chat.id)
-
-    if docs_to_display:
-        text = "<b>📂 Документы за последние сутки:</b>\n\n"
-
-        clean_chat_id = str(message.chat.id).replace("-100", "")
+        raw_mentions = result.scalars().all()
         
-        for doc in docs_to_display:
-            raw_name = doc.document_name or "Без названия"
-            safe_name = html.escape(raw_name)
+        important_mentions = await ml_filter_important_mentions(raw_mentions)
+        return important_mentions
 
-            msg_link = f"https://t.me/c/{clean_chat_id}/{doc.message_id}"
+@router.message(F.text == "/mentions")
+async def get_mentions_handler(message: types.Message):
+    mentions = await get_daily_mentions(chat_id=message.chat.id)
+    
+    if not mentions:
+        await message.answer("🔕 Важных упоминаний за сутки не найдено.")
+        return
+    
+    grouped_mentions = {}
 
-            item_text = f"📄 <a href='{msg_link}'><b>{safe_name}</b></a>"
+    clean_chat_id = str(message.chat.id).replace("-100", "")
+    
+    for m in mentions:
+        tag = m.mention
 
-            if doc.context:
-                safe_context = html.escape(doc.context[:100] + "..." if len(doc.context) > 100 else doc.context)
-                item_text += f"\n└ <i>{safe_context}</i>"
-            
-            text += item_text + "\n\n"
+        link = f"https://t.me/c/{clean_chat_id}/{m.message_id}"
+        
+        if tag not in grouped_mentions:
+            grouped_mentions[tag] = []
 
-        await message.answer(text, disable_web_page_preview=True)
-    else:
-        await message.answer("✅ Документов за последние 24 часа не найдено.")
+        grouped_mentions[tag].append(link)
+
+    text = "<b>🔔 Упоминания за 24 часа:</b>\n\n"
+
+    for tag, links in grouped_mentions.items():
+        text += f"<b>{tag}</b>\n"
+
+        for i, link in enumerate(links, 1):
+            text += f"🔗 <a href='{link}'>Сообщение {i}</a>\n"
+
+        text += "\n"
+
+    await message.answer(text, disable_web_page_preview=True)

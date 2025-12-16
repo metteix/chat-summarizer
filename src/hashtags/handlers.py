@@ -39,7 +39,7 @@ async def get_daily_hashtags(chat_id: int) -> list[Hashtag]:
         return important_hashtags
 
 
-@router.message(F.text == "/mentions")
+@router.message(F.text == "/hashtags")
 async def get_mentions_handler(message: types.Message):
     hashtags = await get_daily_hashtags(chat_id=message.chat.id)
 
