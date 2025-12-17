@@ -19,7 +19,7 @@ async def ml_filter_important_hashtags(hashtags: list[Hashtag]) -> list[Hashtag]
     # Например: return await ask_gpt_to_filter(mentions)
 
     # Пока просто возвращаем всё, но можно отфильтровать, например, теги @all
-    filtered = [m for m in hashtags if m.hashtag.lower() != "@all"]
+    filtered = [m for m in hashtags]
     return filtered
 
 
