@@ -7,9 +7,8 @@ from aiogram.enums import ChatMemberStatus
 from sqlalchemy import select, update
 from sqlalchemy.exc import NoResultFound
 
-from database.session import async_session
-from database.models import ChatSettings
-from src.settings.keyboards import (
+
+from .keyboards import (
     get_main_settings_kb,
     get_mode_settings_kb,
     get_summary_fields_kb,
