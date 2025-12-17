@@ -7,7 +7,7 @@ from aiogram.enums import ChatMemberStatus
 from database.crud import get_chat_settings, update_chat_settings
 
 
-from keyboards import (
+from .keyboards import (
     get_main_settings_kb,
     get_mode_settings_kb,
     get_summary_fields_kb,
