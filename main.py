@@ -12,6 +12,7 @@ from src.catch.handlers import router as catch_router
 from src.mentions.handlers import router as mentios_router
 from src.docs.handlers import router as docs_router
 from src.hashtags.handlers import router as hashtags_router
+from src.settings.handlers import router as settings_router
 
 from database import init_db
 from database.session import async_session
@@ -46,6 +47,7 @@ async def main() -> None:
     dp.include_router(docs_router)
     dp.include_router(hashtags_router)
     dp.include_router(catch_router)
+    dp.include_router(settings_router)
 
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
     dp.message.outer_middleware(CollectorMiddleware())
