@@ -1,15 +1,24 @@
 from aiogram import Router, types
-from aiogram.filters import CommandStart, StateFilter
-from aiogram.fsm.state import default_state
+from aiogram.filters import Command
+from database.crud import activate_chat, deactivate_chat
 
 router = Router()
 
-@router.message(CommandStart(), StateFilter(default_state))
+@router.message(Command("start"))
 async def cmd_start(message: types.Message):
     await message.answer(
-        """Привет! 👋
-
-        Я помогаю не потерять важные упоминания, поручения и документы из переписки, 
-        чтобы пользователь всегда был в курсе всех учебных событий и дедлайнов. 
-        Чтобы узнать больше о полезных функциях бота, нажмите /help.:""",
+        "Привет! Я бот-саммарайзер.\n"
+        "Чтобы начать сбор данных в этом чате, напиши /on\n"
+        "Чтобы остановить — /off\n"
+        "Настройки — /settings"
     )
+
+@router.message(Command("on"))
+async def cmd_on(message: types.Message):
+    await activate_chat(message.chat)
+    await message.answer("✅ <b>Бот активирован!</b>\nЯ начал собирать ссылки, задачи и файлы.")
+
+@router.message(Command("off"))
+async def cmd_off(message: types.Message):
+    await deactivate_chat(message.chat.id)
+    await message.answer("🛑 <b>Бот остановлен.</b>\nСбор данных прекращен.")
