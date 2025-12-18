@@ -27,7 +27,8 @@ async def get_daily_mentions(chat_id: int) -> list[Mention]:
     async with async_session() as session:
         query = select(Mention).where(
             Mention.chat_id == chat_id,
-            Mention.created_at >= yesterday
+            Mention.created_at >= yesterday,
+            Mention.is_checked.is_checked
         ).order_by(Mention.created_at.desc())
         
         result = await session.execute(query)

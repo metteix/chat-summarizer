@@ -14,7 +14,8 @@ async def get_daily_documents(chat_id: int) -> list[Document]:
     async with async_session() as session:
         query = select(Document).where(
             Document.chat_id == chat_id,
-            Document.created_at >= yesterday
+            Document.created_at >= yesterday,
+            Document.is_checked
         )
         result = await session.execute(query)
         return result.scalars().all()

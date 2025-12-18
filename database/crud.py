@@ -2,6 +2,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from database.session import async_session
 from database.models import Mention, Hashtag, Link, Document, Task
+from sqlalchemy import update
+from database.session import async_session
 
 
 async def add_link(chat_id: int, message_id: int, url: str, description: str = None):
@@ -33,6 +35,31 @@ async def add_task(chat_id: int, message_id: int, description: str, assignee: st
         )
         session.add(task)
         await session.commit()
+
+async def save_analysis_results(model, analysis_results: list[dict]):
+    """
+    Сохраняет результаты ML в базу данных.
+    analysis_results: список словарей {'id': int, 'is_important': bool, 'about': str}
+    """
+    if not analysis_results:
+        return
+
+    async with async_session() as session:
+        # К сожалению, массовый update с разными значениями в SQLAlchemy сложный,
+        # поэтому обновляем по одному (для чат-бота это ок по скорости).
+        for item in analysis_results:
+            stmt = (
+                update(model)
+                .where(model.id == item['id'])
+                .values(
+                    is_checked=True,
+                    is_important=item['is_important'],
+                    about=item['about']
+                )
+            )
+            await session.execute(stmt)
+        await session.commit()
+
 
 # --- 4. ПОЛУЧЕНИЕ ДАННЫХ (ДЛЯ СВОДКИ) ---
 

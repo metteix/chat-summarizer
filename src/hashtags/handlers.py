@@ -29,7 +29,8 @@ async def get_daily_hashtags(chat_id: int) -> list[Hashtag]:
     async with async_session() as session:
         query = select(Hashtag).where(
             Hashtag.chat_id == chat_id,
-            Hashtag.created_at >= yesterday
+            Hashtag.created_at >= yesterday,
+            Hashtag.is_checked
         ).order_by(Hashtag.created_at.desc())
 
         result = await session.execute(query)

@@ -13,7 +13,8 @@ async def get_daily_tasks(chat_id: int) -> list[Task]:
     async with async_session() as session:
         query = select(Task).where(
             Task.chat_id == chat_id, 
-            Task.created_at >= yesterday
+            Task.created_at >= yesterday,
+            Task.is_checked
         )
         result = await session.execute(query)
         return result.scalars().all()
