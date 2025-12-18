@@ -1,5 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, BigInteger, Text, Boolean
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy import (
+    Column,
+    Integer,
+    String,
+    DateTime,
+    BigInteger,
+    Text,
+    Boolean,
+    ForeignKey
+)
+from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.sql import func
 
@@ -7,22 +16,27 @@ class Base(AsyncAttrs, DeclarativeBase):
     pass
 
 
-class ChatSettings(Base):
-    __tablename__ = 'chat_settings'
+class Chat(Base):
+    __tablename__ = 'chats'
 
     id = Column(Integer, primary_key=True)
     chat_id = Column(BigInteger, unique=True, nullable=False)
 
-    is_auto_summary = Column(Boolean, default=False)
-    summary_time = Column(String(5), default="09:00")
+    title = Column(String(255), nullable=True)
+    username = Column(String(255), nullable=True)
+    type = Column(String(50), nullable=False)
 
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=func.now())
+
+    is_auto_summary = Column(Boolean, default=True)
+    summary_time = Column(String(5), default="19:00")
+    
     include_tasks = Column(Boolean, default=True)
     include_links = Column(Boolean, default=True)
     include_docs = Column(Boolean, default=True)
     include_mentions = Column(Boolean, default=True)
     include_hashtags = Column(Boolean, default=True)
-
-    created_at = Column(DateTime, default=func.now())
 
 class Mention(Base):
     __tablename__ = 'tags'

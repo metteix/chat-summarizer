@@ -46,7 +46,6 @@ async def main() -> None:
     dp.include_router(mentios_router)
     dp.include_router(docs_router)
     dp.include_router(hashtags_router)
-    dp.include_router(catch_router)
     dp.include_router(settings_router)
 
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
@@ -54,6 +53,8 @@ async def main() -> None:
 
     dp.edited_message.outer_middleware(DbSessionMiddleware(async_session))
     dp.edited_message.outer_middleware(CollectorMiddleware())
+    
+    dp.include_router(catch_router)
 
     await bot.delete_webhook(drop_pending_updates=True)
 

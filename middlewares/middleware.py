@@ -1,8 +1,9 @@
 from typing import Callable, Dict, Any, Awaitable
 from aiogram import BaseMiddleware
 from aiogram.types import Message
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from database.models import Mention, Hashtag, Document, Link, Task
+from database.models import Mention, Hashtag, Document, Link, Task, Chat
 
 class CollectorMiddleware(BaseMiddleware):
     async def __call__(
@@ -20,6 +21,12 @@ class CollectorMiddleware(BaseMiddleware):
         message_id = event.message_id
 
         if text.startswith("/"):
+            return await handler(event, data)
+
+        res = await session.execute(select(Chat).where(Chat.chat_id == chat_id))
+        chat_entry = res.scalar_one_or_none()
+        
+        if not chat_entry or not chat_entry.is_active:
             return await handler(event, data)
 
         if event.document:

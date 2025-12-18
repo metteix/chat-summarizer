@@ -1,61 +1,51 @@
-from aiogram.types import InlineKeyboardMarkup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from database.models import ChatSettings
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from database.models import Chat
 
-# Конфиг для отображения названий кнопок и соответствия кодов
 SUMMARY_FIELDS_CONFIG = {
-    "tasks": "Задания",
-    "links": "Ссылки",
-    "hashtags": "Хэштеги",
-    "tags": "Тэги (Mentions)",
-    "files": "Файлы"
+    "tasks": "📝 Задачи",
+    "links": "🔗 Ссылки",
+    "files": "📂 Файлы",
+    "tags": "🔔 Теги",
+    "hashtags": "#️⃣ Хештеги"
 }
 
-
 def get_main_settings_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="⚙️ Настройка режима", callback_data="settings_mode_menu")
-    builder.button(text="📝 Состав Summary", callback_data="settings_summary_menu")
-    builder.adjust(1)
-    return builder.as_markup()
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛠 Режим работы", callback_data="settings_mode_menu")],
+        [InlineKeyboardButton(text="📋 Состав сводки", callback_data="settings_summary_menu")],
+        [InlineKeyboardButton(text="❌ Закрыть", callback_data="delete_message")]
+    ])
 
+def get_mode_settings_kb(chat: Chat) -> InlineKeyboardMarkup:
+    auto_text = "✅ Авто" if chat.is_auto_summary else "Авто"
+    manual_text = "✅ Ручной" if not chat.is_auto_summary else "Ручной"
+    
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=auto_text, callback_data="set_mode_auto_init"),
+            InlineKeyboardButton(text=manual_text, callback_data="set_mode_manual")
+        ],
+        [
+            InlineKeyboardButton(text="🕒 Изменить время", callback_data="set_mode_auto_change")
+        ],
+        [InlineKeyboardButton(text="🔙 Назад", callback_data="settings_home")]
+    ])
 
-def get_mode_settings_kb(settings: ChatSettings) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-
-    if settings.is_auto_summary:
-        # Если включен авто-режим
-        builder.button(text=f"⏰ Изменить время ({settings.summary_time})", callback_data="set_mode_auto_change")
-        builder.button(text="⏹ Переключить на ручной", callback_data="set_mode_manual")  #поменять название и интерфейс кнопки
-    else:
-        # Если включен ручной режим
-        builder.button(text="▶️ Включить авто режим", callback_data="set_mode_auto_init")
-
-    builder.button(text="🔙 Назад", callback_data="settings_home")
-    builder.adjust(1)
-    return builder.as_markup()
-
-
-def get_summary_fields_kb(settings: ChatSettings) -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-
-    # Словарь соответствия: Ключ конфига -> Поле в модели ChatSettings
-    mapping = {
-        "tasks": settings.include_tasks,
-        "links": settings.include_links,
-        "files": settings.include_docs,
-        "tags": settings.include_mentions,
-        "hashtags": settings.include_hashtags
-    }
-
-    for code, label in SUMMARY_FIELDS_CONFIG.items():  #тут как будто какая то хуйня но я не могу это доказать
-        # Получаем значение поля (True/False)
-        is_active = mapping.get(code, False)
+def get_summary_fields_kb(chat: Chat) -> InlineKeyboardMarkup:
+    # Берем поля из chat
+    buttons_map = [
+        ("tasks", chat.include_tasks),
+        ("links", chat.include_links),
+        ("files", chat.include_docs),
+        ("tags", chat.include_mentions),
+        ("hashtags", chat.include_hashtags),
+    ]
+    
+    kb = []
+    for code, is_active in buttons_map:
         status = "✅" if is_active else "❌"
-
-        text = f"{status} {label}"
-        builder.button(text=text, callback_data=f"toggle_field_{code}")
-
-    builder.adjust(1)
-    builder.button(text="✅ Готово / Назад", callback_data="settings_home")
-    return builder.as_markup()
+        text = f"{status} {SUMMARY_FIELDS_CONFIG[code]}"
+        kb.append([InlineKeyboardButton(text=text, callback_data=f"toggle_field_{code}")])
+    
+    kb.append([InlineKeyboardButton(text="🔙 Назад", callback_data="settings_home")])
+    return InlineKeyboardMarkup(inline_keyboard=kb)
