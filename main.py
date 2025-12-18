@@ -13,6 +13,7 @@ from src.mentions.handlers import router as mentios_router
 from src.docs.handlers import router as docs_router
 from src.hashtags.handlers import router as hashtags_router
 from src.settings.handlers import router as settings_router
+from src.summary.handlers import router as summary_router
 
 from database import init_db
 from database.session import async_session
@@ -53,7 +54,7 @@ async def main() -> None:
 
     dp.edited_message.outer_middleware(DbSessionMiddleware(async_session))
     dp.edited_message.outer_middleware(CollectorMiddleware())
-    
+    dp.include_router(summary_router)
     dp.include_router(catch_router)
 
     await bot.delete_webhook(drop_pending_updates=True)

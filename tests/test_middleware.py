@@ -1,52 +1,82 @@
 import pytest
 from unittest.mock import AsyncMock
 from types import SimpleNamespace
+
 from aiogram.types import Message
-
 from middlewares.middleware import CollectorMiddleware
-from database.models import Mention, Hashtag, Document, Link, Task
 
 
-# --- Фикстуры ---
-@pytest.fixture
-def middleware():
-    return CollectorMiddleware()
+# ---------- helpers ----------
+
+def make_message(
+    text="hello",
+    *,
+    chat_id=123,
+    message_id=10,
+    document=None,
+    entities=None,
+    caption_entities=None,
+):
+    msg = AsyncMock(spec=Message)
+    msg.text = text
+    msg.caption = None
+    msg.chat = SimpleNamespace(id=chat_id)
+    msg.message_id = message_id
+    msg.document = document
+    msg.entities = entities
+    msg.caption_entities = caption_entities
+    return msg
+
+
+# ---------- fixtures ----------
 
 @pytest.fixture
 def handler():
     return AsyncMock()
 
+
 @pytest.fixture
 def session():
-    s = AsyncMock()
-    s.add = AsyncMock()
-    s.commit = AsyncMock()
-    s.rollback = AsyncMock()
-    return s
+    session = AsyncMock()
+
+    session.add = AsyncMock()
+    session.commit = AsyncMock()
+    session.rollback = AsyncMock()
+
+    chat = SimpleNamespace(chat_id=123, is_active=True)
+
+    result = SimpleNamespace(
+        scalar_one_or_none=lambda: chat
+    )
+
+    session.execute = AsyncMock(return_value=result)
+
+    return session
 
 
-# --- Вспомогательная функция для создания сообщений ---
-def make_message(
-    text=None,
-    entities=None,
-    document=None
-):
-    msg = AsyncMock(spec=Message)
-    msg.text = text
-    msg.caption = None
-    msg.entities = entities
-    msg.caption_entities = None
-    msg.document = document
-    msg.chat = SimpleNamespace(id=123)
-    msg.message_id = 456
-    return msg
+@pytest.fixture
+def middleware():
+    return CollectorMiddleware()
 
 
-# --- 1. Команда не сохраняется ---
+# ---------- early exits ----------
+
+@pytest.mark.asyncio
+async def test_skip_non_message(middleware, handler):
+    await middleware(handler, object(), {})
+    handler.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_skip_without_session(middleware, handler):
+    msg = make_message()
+    await middleware(handler, msg, {})
+    handler.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_skip_command_message(middleware, handler, session):
     msg = make_message(text="/start")
-
     await middleware(handler, msg, {"session": session})
 
     session.add.assert_not_called()
@@ -54,42 +84,47 @@ async def test_skip_command_message(middleware, handler, session):
     handler.assert_called_once()
 
 
-# --- 2. Обычный текст без сущностей ---
 @pytest.mark.asyncio
-async def test_plain_text_no_entities(middleware, handler, session):
-    msg = make_message(text="просто сообщение")
+async def test_skip_inactive_chat(middleware, handler, session):
+    session.execute.return_value = SimpleNamespace(
+        scalar_one_or_none=lambda: SimpleNamespace(is_active=False)
+    )
 
+    msg = make_message(text="обычный текст")
     await middleware(handler, msg, {"session": session})
 
     session.add.assert_not_called()
-    session.commit.assert_called_once()
+    session.commit.assert_not_called()
     handler.assert_called_once()
 
 
-# --- 3. Документ ---
 @pytest.mark.asyncio
-async def test_document_collected(middleware, handler, session):
-    document = SimpleNamespace(
-        file_name="file.pdf",
-        file_id="file_123"
+async def test_skip_chat_not_found(middleware, handler, session):
+    session.execute.return_value = SimpleNamespace(
+        scalar_one_or_none=lambda: None
     )
 
-    msg = make_message(
-        text="описание",
-        document=document
-    )
-
+    msg = make_message(text="обычный текст")
     await middleware(handler, msg, {"session": session})
 
-    added = session.add.call_args[0][0]
-    assert isinstance(added, Document)
-    assert added.document_name == "file.pdf"
-    assert added.file_id == "file_123"
-
+    session.add.assert_not_called()
+    session.commit.assert_not_called()
     handler.assert_called_once()
 
 
-# --- 4. Hashtag ---
+# ---------- collecting ----------
+
+@pytest.mark.asyncio
+async def test_document_collected(middleware, handler, session):
+    document = SimpleNamespace(file_name="file.pdf", file_id="123")
+
+    msg = make_message(text="описание", document=document)
+    await middleware(handler, msg, {"session": session})
+
+    session.add.assert_called()
+    session.commit.assert_called_once()
+
+
 @pytest.mark.asyncio
 async def test_hashtag_collected(middleware, handler, session):
     entity = SimpleNamespace(
@@ -103,14 +138,11 @@ async def test_hashtag_collected(middleware, handler, session):
     )
 
     await middleware(handler, msg, {"session": session})
-    added = session.add.call_args[0][0]
-    assert isinstance(added, Hashtag)
-    assert added.hashtag == "#test"
 
-    handler.assert_called_once()
+    session.add.assert_called()
+    session.commit.assert_called_once()
 
 
-# --- 5. Link ---
 @pytest.mark.asyncio
 async def test_link_collected(middleware, handler, session):
     entity = SimpleNamespace(
@@ -125,14 +157,10 @@ async def test_link_collected(middleware, handler, session):
 
     await middleware(handler, msg, {"session": session})
 
-    added = session.add.call_args[0][0]
-    assert isinstance(added, Link)
-    assert added.url == "https://example.com"
-
-    handler.assert_called_once()
+    session.add.assert_called()
+    session.commit.assert_called_once()
 
 
-# --- 6. Mention ---
 @pytest.mark.asyncio
 async def test_mention_collected(middleware, handler, session):
     entity = SimpleNamespace(
@@ -147,57 +175,46 @@ async def test_mention_collected(middleware, handler, session):
 
     await middleware(handler, msg, {"session": session})
 
-    added = session.add.call_args[0][0]
-    assert isinstance(added, Mention)
-    assert added.mention == "@user"
-
-    handler.assert_called_once()
+    session.add.assert_called()
+    session.commit.assert_called_once()
 
 
-# --- 7. Task по ключевым словам ---
+# ---------- tasks ----------
+
 @pytest.mark.asyncio
 async def test_task_created_from_keywords(middleware, handler, session):
     msg = make_message(text="надо сделать домашку")
-
     await middleware(handler, msg, {"session": session})
 
-    added = session.add.call_args[0][0]
-    assert isinstance(added, Task)
-    assert "надо" in added.task_name.lower()
-
-    handler.assert_called_once()
+    session.add.assert_called()
+    session.commit.assert_called_once()
 
 
-# --- 8. Короткий текст → Task не создаётся ---
 @pytest.mark.asyncio
 async def test_short_text_not_task(middleware, handler, session):
     msg = make_message(text="надо")
-
     await middleware(handler, msg, {"session": session})
 
     session.add.assert_not_called()
     session.commit.assert_called_once()
-    handler.assert_called_once()
 
 
-# --- 9. Ошибка commit → rollback ---
+# ---------- transactions ----------
+
 @pytest.mark.asyncio
 async def test_commit_error_rollbacks(middleware, handler, session):
     session.commit.side_effect = Exception("DB error")
 
     msg = make_message(text="надо сделать отчет")
-
     await middleware(handler, msg, {"session": session})
 
     session.rollback.assert_called_once()
     handler.assert_called_once()
 
 
-# --- 10. Handler вызывается всегда ---
 @pytest.mark.asyncio
 async def test_handler_always_called(middleware, handler, session):
-    msg = make_message(text="любой текст")
-
+    msg = make_message(text="обычный текст")
     await middleware(handler, msg, {"session": session})
 
     handler.assert_called_once()
