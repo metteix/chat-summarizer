@@ -1,113 +1,73 @@
+from aiogram import Router, types
+from aiogram.filters import Command
 import html
-import datetime
-from aiogram import Router, F, types
-from database.session import async_session
-from database.models import Chat, Task, Document, Link, Mention, Hashtag
-from database.crud import get_chat_settings
-from src.settings.handlers import SettingsStates
+from database.crud import get_daily_data, get_chat_settings
 
 router = Router()
 
+@router.message(Command("summary"))
+async def cmd_summary(message: types.Message):
+    settings = await get_chat_settings(message.chat.id)
 
-# --- 1. ML-заглушка: пока просто возвращаем список как есть ---
-async def ml_filter_important(items: list):
-    """
-    Заглушка фильтра для будущей нейросети.
-    Пока возвращаем список без изменений.
-    """
-    return items
+    if not settings:
+        await message.answer("❌ Бот не активирован в этом чате. Напишите /on")
+        return
 
+    data = await get_daily_data(message.chat.id)
 
-# --- 2. Получение данных за последние 24 часа ---
-async def get_daily_items(chat_id: int):
-    yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
+    if not any(data.values()):
+        await message.answer("📭 За последние 24 часа важных данных не найдено.")
+        return
 
-    async with async_session() as session:
-        # Задачи
-        tasks = (await session.execute(
-            Task.__table__.select().where(Task.chat_id == chat_id, Task.created_at >= yesterday)
-        )).scalars().all()
+    report = [f"<b>📊 СВОДКА ЗА 24 ЧАСА</b>\n"]
 
-        # Документы
-        documents = (await session.execute(
-            Document.__table__.select().where(Document.chat_id == chat_id, Document.created_at >= yesterday)
-        )).scalars().all()
+    chat_username = message.chat.username
+    clean_id = str(message.chat.id).replace("-100", "")
+    
+    def get_link(msg_id):
+        if chat_username:
+            return f"https://t.me/{chat_username}/{msg_id}"
+        return f"https://t.me/c/{clean_id}/{msg_id}"
 
-        # Ссылки
-        links = (await session.execute(
-            Link.__table__.select().where(Link.chat_id == chat_id, Link.created_at >= yesterday)
-        )).scalars().all()
+    if settings.include_tasks and data["tasks"]:
+        report.append("📝 <b>Задачи:</b>")
+        for t in data["tasks"]:
+            report.append(f"▫️ {html.escape(t.task_name)}")
+        report.append("")
 
-        # Упоминания
-        mentions = (await session.execute(
-            Mention.__table__.select().where(Mention.chat_id == chat_id, Mention.created_at >= yesterday)
-        )).scalars().all()
+    if settings.include_links and data["links"]:
+        report.append("🔗 <b>Важные ссылки:</b>")
+        for l in data["links"]:
+            desc = l.context if l.context and len(l.context) < 50 else "Ссылка"
+            report.append(f"🔹 <a href='{l.url}'>{html.escape(desc)}</a>")
+        report.append("")
 
-        # Хештеги
-        hashtags = (await session.execute(
-            Hashtag.__table__.select().where(Hashtag.chat_id == chat_id, Hashtag.created_at >= yesterday)
-        )).scalars().all()
+    if settings.include_docs and data["documents"]:
+        report.append("📂 <b>Файлы:</b>")
+        for d in data["documents"]:
+            link = get_link(d.message_id)
+            report.append(f"📄 <a href='{link}'>{html.escape(d.document_name)}</a>")
+        report.append("")
 
-    return tasks, documents, links, mentions, hashtags
+    if settings.include_mentions and data["mentions"]:
+        m_map = {}
+        for m in data["mentions"]:
+            if m.mention not in m_map: m_map[m.mention] = []
+            m_map[m.mention].append(get_link(m.message_id))
+        
+        report.append("🔔 <b>Упоминания:</b>")
+        for user, links in m_map.items():
+            links_str = ", ".join([f"<a href='{url}'>{i}</a>" for i, url in enumerate(links, 1)])
+            report.append(f"👤 {user}: {links_str}")
+        report.append("")
 
+    if settings.include_hashtags and data["hashtags"]:
+        tags = list(set([h.hashtag for h in data["hashtags"]]))
+        report.append(f"#️⃣ <b>Темы:</b> {', '.join(tags)}")
 
-# --- 3. Формирование текста Summary с учётом настроек ---
-async def format_summary(chat_id: int) -> str:
-    chat_settings: Chat = await get_chat_settings(chat_id)
-    if not chat_settings or not chat_settings.is_active:
-        return "⚠️ Бот не активен в этом чате. Включите его командой /on"
+    if len(report) <= 1:
+        await message.answer("⚠️ Все категории сводки отключены в настройках /settings.")
+        return
 
-    tasks, documents, links, mentions, hashtags = await get_daily_items(chat_id)
-
-    # ML-фильтр (пока без изменений)
-    tasks = await ml_filter_important(tasks)
-    documents = await ml_filter_important(documents)
-    links = await ml_filter_important(links)
-    mentions = await ml_filter_important(mentions)
-    hashtags = await ml_filter_important(hashtags)
-
-    text_parts = []
-    header = '📊 Сводка важного за сегодняшний день 📝\n\n'
-    text_parts.append(header)
-    if chat_settings.include_tasks and tasks:
-        task_text = "📋 <b>Задачи за последние сутки:</b>\n"
-        for t in tasks:
-            task_text += f"▫️ {html.escape(t.task_name or 'Без описания')}\n"
-        text_parts.append(task_text)
-
-    if chat_settings.include_docs and documents:
-        doc_text = "📂 <b>Документы за последние сутки:</b>\n"
-        for d in documents:
-            doc_text += f"▫️ {html.escape(d.document_name or 'Без названия')}\n"
-        text_parts.append(doc_text)
-
-    if chat_settings.include_links and links:
-        link_text = "🔗 <b>Ссылки за последние сутки:</b>\n"
-        for l in links:
-            link_text += f"▫️ {l.url}\n"
-        text_parts.append(link_text)
-
-    if chat_settings.include_mentions and mentions:
-        mention_text = "🔔 <b>Упоминания за сутки:</b>\n"
-        for m in mentions:
-            mention_text += f"▫️ {m.mention}\n"
-        text_parts.append(mention_text)
-
-    if chat_settings.include_hashtags and hashtags:
-        hashtag_text = "#️⃣ <b>Хештеги за сутки:</b>\n"
-        for h in hashtags:
-            hashtag_text += f"▫️ {h.hashtag}\n"
-        text_parts.append(hashtag_text)
-
-    if len(text_parts) == 1:
-        return "✅ Нет данных для сводки за последние сутки."
-
-
-    return "\n\n".join(text_parts)
-
-
-# --- 4. Команда /summary ---
-@router.message(F.text == "/summary")
-async def summary_handler(message: types.Message):
-    text = await format_summary(message.chat.id)
-    await message.answer(text, disable_web_page_preview=True)
+    final_text = "\n".join(report)
+    await message.answer(final_text, disable_web_page_preview=True)

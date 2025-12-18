@@ -1,7 +1,9 @@
+from datetime import datetime, timedelta
 from sqlalchemy import select, update
 from aiogram import types
+
 from database.session import async_session
-from database.models import Chat
+from database.models import Chat, Task, Link, Document, Mention, Hashtag
 
 async def activate_chat(message_chat: types.Chat) -> Chat:
     """
@@ -57,3 +59,33 @@ async def update_settings_field(chat_id: int, **kwargs):
             update(Chat).where(Chat.chat_id == chat_id).values(**kwargs)
         )
         await session.commit()
+async def get_daily_data(chat_id: int):
+    """
+    Собирает все данные по конкретному чату за последние 24 часа.
+    """
+    yesterday = datetime.now() - timedelta(days=1)
+    
+    async with async_session() as session:
+        tasks_q = await session.execute(
+            select(Task).where(Task.chat_id == chat_id, Task.created_at >= yesterday)
+        )
+        mentions_q = await session.execute(
+            select(Mention).where(Mention.chat_id == chat_id, Mention.created_at >= yesterday)
+        )
+        hashtags_q = await session.execute(
+            select(Hashtag).where(Hashtag.chat_id == chat_id, Hashtag.created_at >= yesterday)
+        )
+        links_q = await session.execute(
+            select(Link).where(Link.chat_id == chat_id, Link.created_at >= yesterday)
+        )
+        docs_q = await session.execute(
+            select(Document).where(Document.chat_id == chat_id, Document.created_at >= yesterday)
+        )
+
+        return {
+            "tasks": tasks_q.scalars().all(),
+            "mentions": mentions_q.scalars().all(),
+            "hashtags": hashtags_q.scalars().all(),
+            "links": links_q.scalars().all(),
+            "documents": docs_q.scalars().all(),
+        }
