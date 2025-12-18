@@ -1,10 +1,12 @@
 import asyncio
 import logging
+
 from aiogram import Bot, Dispatcher, BaseMiddleware
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.client.bot import DefaultBotProperties
 
 from configs.config import BOT_TOKEN
+
 from src.entry.handlers import router as entry_router
 from src.tasks.handlers import router as tasks_router
 from src.links.handlers import router as links_router
@@ -17,6 +19,7 @@ from src.summary.handlers import router as summary_router
 
 from database import init_db
 from database.session import async_session
+
 from middlewares.middleware import CollectorMiddleware
 
 class DbSessionMiddleware(BaseMiddleware):
@@ -48,13 +51,14 @@ async def main() -> None:
     dp.include_router(docs_router)
     dp.include_router(hashtags_router)
     dp.include_router(settings_router)
+    dp.include_router(summary_router)
 
     dp.message.outer_middleware(DbSessionMiddleware(async_session))
     dp.message.outer_middleware(CollectorMiddleware())
 
     dp.edited_message.outer_middleware(DbSessionMiddleware(async_session))
     dp.edited_message.outer_middleware(CollectorMiddleware())
-    dp.include_router(summary_router)
+
     dp.include_router(catch_router)
 
     await bot.delete_webhook(drop_pending_updates=True)
