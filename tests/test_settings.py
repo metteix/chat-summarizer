@@ -1,108 +1,181 @@
 import sys
-from unittest.mock import AsyncMock, MagicMock, patch
+import re
 import pytest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
-# Мокаем database.crud до импорта handlers
+# -----------------------------
+# mock database.crud BEFORE import
+# -----------------------------
 sys.modules["database.crud"] = MagicMock(
     get_chat_settings=AsyncMock(),
-    update_chat_settings=AsyncMock()
+    update_settings_field=AsyncMock(),
+    activate_chat=AsyncMock(),
 )
 
-from src.settings.handlers import cmd_settings, settings_callback_router, process_time_input, SettingsStates
+# -----------------------------
+# import after mocks
+# -----------------------------
+from src.settings.handlers import (
+    cmd_settings,
+    settings_callback_router,
+    process_time_input,
+)
+from src.settings.states import SettingsStates
 
 
+# -----------------------------
+# fixtures
+# -----------------------------
 @pytest.fixture
-def mock_message():
+def message():
     msg = AsyncMock()
-    msg.chat = SimpleNamespace(id=12345, title="TestChat")
+    msg.chat = SimpleNamespace(id=123, title="TestChat")
     msg.from_user = SimpleNamespace(id=1)
+    msg.text = ""
     msg.answer = AsyncMock()
     msg.reply = AsyncMock()
     return msg
 
 
 @pytest.fixture
-def mock_callback():
+def callback():
     cb = AsyncMock()
-    cb.message = SimpleNamespace(chat=SimpleNamespace(id=12345, title="TestChat"))
-    cb.from_user = SimpleNamespace(id=1)
     cb.data = ""
+    cb.from_user = SimpleNamespace(id=1)
+    cb.message = SimpleNamespace(
+        chat=SimpleNamespace(id=123, title="TestChat"),
+        edit_text=AsyncMock(),
+        edit_reply_markup=AsyncMock(),
+        delete=AsyncMock(),
+    )
     cb.answer = AsyncMock()
-    cb.message.edit_text = AsyncMock()
-    cb.message.edit_reply_markup = AsyncMock()
     return cb
 
 
+@pytest.fixture
+def state():
+    st = AsyncMock()
+    st.set_state = AsyncMock()
+    st.clear = AsyncMock()
+    return st
+
+
+# -----------------------------
+# /settings command
+# -----------------------------
 @pytest.mark.asyncio
-async def test_cmd_settings(mock_message):
-    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as mock_admin, \
-         patch("src.settings.handlers.get_status_text", new_callable=AsyncMock) as mock_status, \
-         patch("src.settings.handlers.get_summary_fields_kb", return_value=None):
+async def test_cmd_settings_admin_ok(message):
+    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as admin, \
+         patch("src.settings.handlers.get_chat_settings", new_callable=AsyncMock) as get_chat, \
+         patch("src.settings.handlers.activate_chat", new_callable=AsyncMock) as activate_chat, \
+         patch("src.settings.handlers.format_status_text", return_value="STATUS"), \
+         patch("src.settings.handlers.get_main_settings_kb", return_value="KB"):
 
-        mock_admin.return_value = True
-        mock_status.return_value = "STATUS_TEXT"
+        admin.return_value = True
+        get_chat.return_value = SimpleNamespace(is_auto_summary=False)
 
-        await cmd_settings(mock_message, bot=None)
+        await cmd_settings(message, bot=None)
 
-        # Проверяем текст и parse_mode, не зависим от клавиатуры
-        mock_message.answer.assert_called_once()
-        sent_text = mock_message.answer.call_args[0][0]
-        sent_parse_mode = mock_message.answer.call_args[1]["parse_mode"]
-        assert sent_text == "STATUS_TEXT"
-        assert sent_parse_mode == "Markdown"
+        message.answer.assert_called_once_with("STATUS", reply_markup="KB")
 
-
-@pytest.mark.asyncio
-async def test_settings_callback_toggle_field(mock_callback):
-    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as mock_admin, \
-         patch("src.settings.handlers.get_chat_settings") as mock_get, \
-         patch("src.settings.handlers.update_chat_settings") as mock_update, \
-         patch("src.settings.handlers.get_summary_fields_kb") as mock_kb:
-
-        mock_admin.return_value = True
-        mock_get.return_value = SimpleNamespace(
-            include_tasks=True,
-            include_links=False,
-            include_docs=True,
-            include_mentions=True,
-            include_hashtags=False
-        )
-        mock_kb.return_value = "KEYBOARD"
-
-        mock_callback.data = "toggle_field_files"
-
-        await settings_callback_router(mock_callback, state=AsyncMock(), bot=None)
-
-        mock_update.assert_called_once()
-        mock_callback.answer.assert_called_once()
-
-
-# потом включим когда доделаем settings
-
-
-# @pytest.mark.asyncio
-# async def test_process_time_input_valid(mock_message):
-#     mock_message.text = "12:30"
-#
-#     # Создаём state с нужным методом
-#     state = AsyncMock()
-#     state.update_data = AsyncMock()
-#
-#     await process_time_input(mock_message, state)
-#
-#     # Проверяем, что state.update_data был вызван с любыми аргументами
-#     state.update_data.assert_called_once()
-#     state.clear.assert_called_once()
-#     mock_message.answer.assert_called_once()
-#
 
 @pytest.mark.asyncio
-async def test_process_time_input_invalid(mock_message):
-    mock_message.text = "invalid"
+async def test_cmd_settings_not_admin(message):
+    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as admin:
+        admin.return_value = False
 
-    state = AsyncMock()
-    await process_time_input(mock_message, state)
+        await cmd_settings(message, bot=None)
 
-    mock_message.reply.assert_called_once_with("Формат: 09:00")
-    state.clear.assert_not_called()  # state не должен очищаться при ошибке
+        message.reply.assert_called_once()
+        message.answer.assert_not_called()
+
+
+# -----------------------------
+# callback router
+# -----------------------------
+@pytest.mark.asyncio
+async def test_delete_message_callback(callback, state):
+    callback.data = "delete_message"
+
+    await settings_callback_router(callback, state, bot=None)
+
+    callback.message.delete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_toggle_field_callback(callback, state):
+    callback.data = "toggle_field_files"
+
+    chat = SimpleNamespace(
+        include_docs=True,
+        include_tasks=True,
+        include_links=False,
+        include_mentions=True,
+        include_hashtags=False,
+        is_auto_summary=False,
+    )
+
+    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as admin, \
+         patch("src.settings.handlers.get_chat_settings", new_callable=AsyncMock) as get_chat, \
+         patch("src.settings.handlers.update_settings_field", new_callable=AsyncMock) as update, \
+         patch("src.settings.handlers.get_summary_fields_kb", return_value="KB"):
+
+        admin.return_value = True
+        get_chat.side_effect = [chat, chat]
+
+        await settings_callback_router(callback, state, bot=None)
+
+        update.assert_called_once()
+        callback.message.edit_reply_markup.assert_called_once_with(reply_markup="KB")
+        callback.answer.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_settings_home(callback, state):
+    callback.data = "settings_home"
+
+    chat = SimpleNamespace(is_auto_summary=False)
+
+    with patch("src.settings.handlers.is_user_admin", new_callable=AsyncMock) as admin, \
+         patch("src.settings.handlers.get_chat_settings", return_value=chat), \
+         patch("src.settings.handlers.format_status_text", return_value="STATUS"), \
+         patch("src.settings.handlers.get_main_settings_kb", return_value="KB"):
+
+        admin.return_value = True
+
+        await settings_callback_router(callback, state, bot=None)
+
+        state.clear.assert_called_once()
+        callback.message.edit_text.assert_called_once()
+        callback.answer.assert_called_once()
+
+
+# -----------------------------
+# time input FSM
+# -----------------------------
+@pytest.mark.asyncio
+async def test_process_time_input_valid(message, state):
+    message.text = "18:30"
+
+    with patch("src.settings.handlers.update_settings_field", new_callable=AsyncMock), \
+         patch("src.settings.handlers.get_chat_settings", new_callable=AsyncMock) as get_chat, \
+         patch("src.settings.handlers.format_status_text", return_value="STATUS"), \
+         patch("src.settings.handlers.get_main_settings_kb", return_value="KB"):
+
+        get_chat.return_value = SimpleNamespace(is_auto_summary=True)
+
+        await process_time_input(message, state)
+
+        state.clear.assert_called_once()
+        message.answer.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_process_time_input_invalid(message, state):
+    message.text = "invalid"
+
+    await process_time_input(message, state)
+
+    message.answer.assert_called_once()
+    state.clear.assert_not_called()
