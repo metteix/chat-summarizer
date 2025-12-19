@@ -6,26 +6,10 @@ import datetime
 import html
 
 from ml.ml import analyze_items
+from database.crud import save_analysis_results
 
 router = Router()
 
-async def save_analysis_results(model, analysis_results: list[dict]):
-    """Сохраняет результаты (is_checked, is_important, about) в БД."""
-    if not analysis_results:
-        return
-    async with async_session() as session:
-        for item in analysis_results:
-            stmt = (
-                update(model)
-                .where(model.id == item['id'])
-                .values(
-                    is_checked=True,
-                    is_important=item['is_important'],
-                    about=item['about']
-                )
-            )
-            await session.execute(stmt)
-        await session.commit()
 
 async def get_daily_links(chat_id: int) -> list[Link]:
     """

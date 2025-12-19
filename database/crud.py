@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from sqlalchemy import select
+from sqlalchemy import select, update
 from database.session import async_session
 from database.models import Mention, Hashtag, Link, Document, Task
 
@@ -58,3 +58,26 @@ async def get_daily_data(chat_id: int):
             "links": (await session.execute(links_q)).scalars().all(),
             "documents": (await session.execute(docs_q)).scalars().all(),
         }
+
+async def save_analysis_results(model, analysis_results: list[dict]):
+    """
+    Сохраняет результаты ML (is_checked, is_important, about) в БД.
+    Подходит для любой модели (Link, Document, Task и т.д.),
+    у которой есть эти поля.
+    """
+    if not analysis_results:
+        return
+
+    async with async_session() as session:
+        for item in analysis_results:
+            stmt = (
+                update(model)
+                .where(model.id == item['id'])
+                .values(
+                    is_checked=True,
+                    is_important=item['is_important'],
+                    about=item['about']
+                )
+            )
+            await session.execute(stmt)
+        await session.commit()
