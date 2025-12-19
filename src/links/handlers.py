@@ -1,12 +1,11 @@
 from aiogram import Router, types, F
-from sqlalchemy import select, update
+from sqlalchemy import select
 from database.session import async_session
 from database.models import Link
 import datetime
 import html
 
-from ml.ml import analyze_items
-from database.crud import save_analysis_results
+from ml.services import process_items_pipeline
 
 router = Router()
 
@@ -37,45 +36,16 @@ async def get_links_handler(message: types.Message):
 
     status_msg = await message.answer("🔎 Проверяю ссылки...")
 
-    # 2. Ищем, что из этого новое (еще не проверяли)
-    new_links = [link for link in all_links if not link.is_checked]
+    links_to_show = await process_items_pipeline(
+        all_items=all_links,
+        item_type="link",  # Какой промпт брать
+        model_class=Link  # В какую таблицу сохранять
+    )
 
-    # 3. Если есть новые — анализируем
-    if new_links:
-        analyzed_data = await analyze_items(new_links, item_type="link")
-
-        # ЗАЩИТА: Если ML вернул None (ошибка), прекращаем работу, чтобы не испортить данные
-        if analyzed_data is None:
-            await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
-            return
-
-        # Словарь важных ID для быстрого поиска: {id: 'About text'}
-        important_map = {item['original'].id: item['about'] for item in analyzed_data}
-
-        results_to_save = []
-
-        # Проходим по всем НОВЫМ ссылкам
-        for link in new_links:
-            # Если ID есть в ответе ML — значит важно. Нет — мусор.
-            is_imp = link.id in important_map
-            about_text = important_map.get(link.id, None)
-
-            # Подготовка для БД
-            results_to_save.append({
-                'id': link.id,
-                'is_important': is_imp,
-                'about': about_text
-            })
-
-            # Обновление в памяти (чтобы показать юзеру прямо сейчас)
-            link.is_checked = True
-            link.is_important = is_imp
-            link.about = about_text
-
-        # Сохраняем пачкой
-        await save_analysis_results(Link, results_to_save)
-
-    links_to_show = [link for link in all_links if link.is_important]
+    # 3. Обработка ошибки
+    if links_to_show is None:
+        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        return
 
     # <--- ВОТ ЭТА ПРОВЕРКА, КОТОРОЙ НЕ ХВАТАЛО --->
     if not links_to_show:
