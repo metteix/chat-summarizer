@@ -45,10 +45,7 @@ class Mention(Base):
     message_id = Column(BigInteger, nullable=False)
     mention = Column(String(50), nullable=False)
     context = Column(Text, nullable=True)     
-    created_at = Column(DateTime, default=func.now())
-    is_checked = Column(Boolean, default=False)
-    is_important = Column(Boolean, default=False)  # <-- Нужно добавить
-    about = Column(String, nullable=True)
+    created_at = Column(DateTime, default=func.now()) 
 
 class Hashtag(Base):
     __tablename__ = 'hashtags'
@@ -58,9 +55,6 @@ class Hashtag(Base):
     hashtag = Column(String(50), nullable=False)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    is_checked = Column(Boolean, default=False)
-    is_important = Column(Boolean, default=False)  # <-- Нужно добавить
-    about = Column(String, nullable=True)
 
 class Document(Base):
     __tablename__ = 'documents'
@@ -71,9 +65,6 @@ class Document(Base):
     document_name = Column(String(255), nullable=False)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    is_checked = Column(Boolean, default=False)
-    is_important = Column(Boolean, default=False)  # <-- Нужно добавить
-    about = Column(String, nullable=True)
 
 class Link(Base):
     __tablename__ = 'links'
@@ -83,9 +74,6 @@ class Link(Base):
     url = Column(String(500), nullable=False)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    is_checked = Column(Boolean, default=False)
-    is_important = Column(Boolean, default=False)  # <-- Нужно добавить
-    about = Column(String, nullable=True)
 
 class Task(Base):
     __tablename__ = 'tasks'
@@ -95,7 +83,4 @@ class Task(Base):
     task_name = Column(Text, nullable=False)
     context = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
-    is_checked = Column(Boolean, default=False)
-    is_important = Column(Boolean, default=False)  # <-- Нужно добавить
-    about = Column(String, nullable=True)
 

@@ -7,7 +7,6 @@ import html
 
 router = Router()
 
-
 async def get_daily_documents(chat_id: int) -> list[Document]:
     yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
 
@@ -16,7 +15,7 @@ async def get_daily_documents(chat_id: int) -> list[Document]:
             Document.chat_id == chat_id,
             Document.created_at >= yesterday
         ).order_by(Document.created_at.desc())
-
+        
         result = await session.execute(query)
         return result.scalars().all()
 
@@ -35,7 +34,7 @@ async def get_documents_handler(message: types.Message):
             link_prefix = f"https://t.me/{message.chat.username}"
 
         elif chat_id_str.startswith("-100"):
-            clean_id = chat_id_str[4:]
+            clean_id = chat_id_str[4:] 
             link_prefix = f"https://t.me/c/{clean_id}"
 
         for doc in docs_to_display:
