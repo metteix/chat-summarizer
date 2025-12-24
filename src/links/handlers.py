@@ -5,7 +5,10 @@ from database.models import Link
 import datetime
 import html
 
+from ml.services import process_items_pipeline
+
 router = Router()
+
 
 async def get_daily_links(chat_id: int) -> list[Link]:
     """
@@ -25,26 +28,36 @@ async def get_daily_links(chat_id: int) -> list[Link]:
 
 @router.message(F.text == "/links")
 async def get_links_handler(message: types.Message):
-    links_to_display = await get_daily_links(chat_id=message.chat.id)
-    
-    if links_to_display:
-        text = "<b>🔗 Ссылки за последние 24 часа:</b>\n\n"
-        
-        for link in links_to_display:
-            url = link.url
-            raw_context = link.context or ""
+    all_links = await get_daily_links(chat_id=message.chat.id)
 
-            if len(raw_context) > 100:
-                raw_context = raw_context[:100] + "..."
-
-            safe_context = html.escape(raw_context)
-
-            if raw_context and raw_context.strip() != url.strip():
-                text += f"🔹 {url}\n   └ <i>{safe_context}</i>\n\n"
-            else:
-                text += f"🔹 {url}\n\n"
-
-        await message.answer(text, disable_web_page_preview=True)
-    
-    else:
+    if not all_links:
         await message.answer("📭 Ссылок за последние сутки не было.")
+        return
+
+    status_msg = await message.answer("🔎 Проверяю ссылки...")
+
+    links_to_show = await process_items_pipeline(
+        all_items=all_links,
+        item_type="link",  # Какой промпт брать
+        model_class=Link  # В какую таблицу сохранять
+    )
+
+    # 3. Обработка ошибки
+    if links_to_show is None:
+        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        return
+
+    # <--- ВОТ ЭТА ПРОВЕРКА, КОТОРОЙ НЕ ХВАТАЛО --->
+    if not links_to_show:
+        await status_msg.edit_text("🤷‍♂️ Ссылки за сутки были, но ничего важного (мемы, спам или оффтоп).")
+        return
+    # <--------------------------------------------->
+
+    # 5. Вывод (сюда мы дойдем, только если список не пустой)
+    text = "<b>🔗 Важные ссылки за 24 часа:</b>\n\n"
+    for link in links_to_show:
+        about = html.escape(link.about or link.context or "Ссылка")
+        text += f"🔹 <b>{about}</b>\n   └ {link.url}\n\n"
+
+    await status_msg.edit_text(text, disable_web_page_preview=True, parse_mode="HTML")
+

@@ -3,24 +3,11 @@ from sqlalchemy import select
 from database.session import async_session
 from database.models import Hashtag
 import datetime
+import html
+
+from ml.services import process_items_pipeline
 
 router = Router()
-
-
-# --- 1. ЗАГЛУШКА ПОД ML (НЕЙРОСЕТЬ) ---
-
-async def ml_filter_important_hashtags(hashtags: list[Hashtag]) -> list[Hashtag]:
-    """
-    Функция-фильтр.
-    Сейчас: Возвращает список как есть.
-    В будущем: Отправит список в GPT, и GPT вернет только важные (где зовут по делу).
-    """
-    # TODO: СЮДА ПОДКЛЮЧИТЬ НЕЙРОНКУ
-    # Например: return await ask_gpt_to_filter(mentions)
-
-    # Пока просто возвращаем всё, но можно отфильтровать, например, теги @all
-    filtered = [m for m in hashtags]
-    return filtered
 
 
 async def get_daily_hashtags(chat_id: int) -> list[Hashtag]:
@@ -33,42 +20,59 @@ async def get_daily_hashtags(chat_id: int) -> list[Hashtag]:
         ).order_by(Hashtag.created_at.desc())
 
         result = await session.execute(query)
-        raw_mentions = result.scalars().all()
-
-        important_hashtags = await ml_filter_important_hashtags(raw_mentions)
-        return important_hashtags
+        return result.scalars().all()
 
 
 @router.message(F.text == "/hashtags")
-async def get_mentions_handler(message: types.Message):
-    hashtags = await get_daily_hashtags(chat_id=message.chat.id)
+async def get_hashtags_handler(message: types.Message):
+    all_hashtags = await get_daily_hashtags(chat_id=message.chat.id)
 
-    if not hashtags:
-        await message.answer("#️⃣ Важных хэштегов за сутки не найдено.")
+    if not all_hashtags:
+        await message.answer("#️⃣ Хэштегов за сутки не найдено.")
         return
 
-    grouped_mentions = {}
+    status_msg = await message.answer("🔎 Анализирую хэштеги...")
 
+    hashtags_to_show = await process_items_pipeline(
+        all_items=all_hashtags,
+        item_type="hashtag",  # Какой промпт брать
+        model_class=Hashtag  # В какую таблицу сохранять
+    )
+
+    # 3. Обработка ошибки
+    if hashtags_to_show is None:
+        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        return
+
+    if not hashtags_to_show:
+        await status_msg.edit_text("🤷‍♂️ Хэштеги были, но ничего важного (оффтоп).")
+        return
+
+    # --- ЛОГИКА ГРУППИРОВКИ И ВЫВОДА ---
+    grouped_mentions = {}
     clean_chat_id = str(message.chat.id).replace("-100", "")
 
-    for m in hashtags:
+    for m in hashtags_to_show:
         htag = m.hashtag
+        url = f"https://t.me/c/{clean_chat_id}/{m.message_id}"
 
-        link = f"https://t.me/c/{clean_chat_id}/{m.message_id}"
+        # Берем описание от ML, или контекст, или дефолтный текст
+        raw_label = m.about or m.context or "Сообщение"
+        safe_label = html.escape(raw_label)
 
         if htag not in grouped_mentions:
             grouped_mentions[htag] = []
 
-        grouped_mentions[htag].append(link)
+        # Сохраняем пару (ссылка, текст)
+        grouped_mentions[htag].append((url, safe_label))
 
-    text = "<b>️#️⃣ Упоминания за 24 часа:</b>\n\n"
+    text = "<b>#️⃣ Важные хэштеги за 24 часа:</b>\n\n"
 
-    for htag, links in grouped_mentions.items():
+    for htag, items in grouped_mentions.items():
         text += f"<b>{htag}</b>\n"
-
-        for i, link in enumerate(links, 1):
-            text += f"🔗 <a href='{link}'>Сообщение {i}</a>\n"
-
+        # items - это список кортежей (url, label)
+        for url, label in items:
+            text += f"🔹 <a href='{url}'>{label}</a>\n"
         text += "\n"
 
-    await message.answer(text, disable_web_page_preview=True)
+    await status_msg.edit_text(text, disable_web_page_preview=True, parse_mode="HTML")
