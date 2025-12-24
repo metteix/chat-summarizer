@@ -1,6 +1,8 @@
 from typing import List, Any, Literal
-from langchain_openai import ChatOpenAI
+# Заменяем импорт
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
+
 
 
 # --- Модели ответа ---
@@ -15,8 +17,13 @@ class BatchAnalysis(BaseModel):
     items: List[ItemAnalysis]
 
 
-# --- Настройка ---
-llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+llm = ChatGoogleGenerativeAI(
+    model="gemini-1.5-flash",
+    temperature=0,
+    # convert_system_message_to_human=True # Иногда полезно для старых моделей Gemini
+)
+
+# Метод with_structured_output поддерживается в актуальных версиях langchain-google-genai
 structured_llm = llm.with_structured_output(BatchAnalysis)
 
 # --- УНИКАЛЬНЫЕ ИНСТРУКЦИИ (ПРОМПТЫ) ---
