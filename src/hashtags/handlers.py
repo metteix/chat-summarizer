@@ -35,20 +35,18 @@ async def get_hashtags_handler(message: types.Message):
 
     hashtags_to_show = await process_items_pipeline(
         all_items=all_hashtags,
-        item_type="hashtag",  # Какой промпт брать
-        model_class=Hashtag  # В какую таблицу сохранять
+        item_type="hashtag",
+        model_class=Hashtag
     )
 
-    # 3. Обработка ошибки
     if hashtags_to_show is None:
-        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        await status_msg.edit_text("⚠️ Временная ошибка Gemini. Попробуй через минуту.")
         return
 
     if not hashtags_to_show:
         await status_msg.edit_text("🤷‍♂️ Хэштеги были, но ничего важного (оффтоп).")
         return
 
-    # --- ЛОГИКА ГРУППИРОВКИ И ВЫВОДА ---
     grouped_mentions = {}
     clean_chat_id = str(message.chat.id).replace("-100", "")
 
@@ -56,21 +54,18 @@ async def get_hashtags_handler(message: types.Message):
         htag = m.hashtag
         url = f"https://t.me/c/{clean_chat_id}/{m.message_id}"
 
-        # Берем описание от ML, или контекст, или дефолтный текст
         raw_label = m.about or m.context or "Сообщение"
         safe_label = html.escape(raw_label)
 
         if htag not in grouped_mentions:
             grouped_mentions[htag] = []
 
-        # Сохраняем пару (ссылка, текст)
         grouped_mentions[htag].append((url, safe_label))
 
     text = "<b>#️⃣ Важные хэштеги за 24 часа:</b>\n\n"
 
     for htag, items in grouped_mentions.items():
         text += f"<b>{htag}</b>\n"
-        # items - это список кортежей (url, label)
         for url, label in items:
             text += f"🔹 <a href='{url}'>{label}</a>\n"
         text += "\n"

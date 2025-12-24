@@ -6,9 +6,8 @@ from sqlalchemy import (
     BigInteger,
     Text,
     Boolean,
-    ForeignKey
 )
-from sqlalchemy.orm import DeclarativeBase, relationship
+from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.sql import func
 

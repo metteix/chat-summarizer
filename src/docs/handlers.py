@@ -25,7 +25,6 @@ async def get_daily_documents(chat_id: int) -> list[Document]:
 
 @router.message(F.text == "/docs")
 async def get_documents_handler(message: types.Message):
-    # 1. Получаем все документы
     all_docs = await get_daily_documents(chat_id=message.chat.id)
 
     if not all_docs:
@@ -36,11 +35,10 @@ async def get_documents_handler(message: types.Message):
 
     docs_to_show = await process_items_pipeline(
         all_items=all_docs,
-        item_type="doc",  # Какой промпт брать
-        model_class=Document  # В какую таблицу сохранять
+        item_type="doc",
+        model_class=Document
     )
 
-    # 3. Обработка ошибки
     if docs_to_show is None:
         await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
         return
@@ -50,10 +48,8 @@ async def get_documents_handler(message: types.Message):
         await status_msg.edit_text("🤷‍♂️ Файлы были, но ничего важного (мемы или стикеры).")
         return
 
-    # 5. Формируем вывод с сохранением логики ссылок
     text = "<b>📂 Важные документы за сутки:</b>\n\n"
 
-    # Логика формирования ссылки на сообщение (как было в старом коде)
     chat_id_str = str(message.chat.id)
     link_prefix = None
 
@@ -64,12 +60,9 @@ async def get_documents_handler(message: types.Message):
         link_prefix = f"https://t.me/c/{clean_id}"
 
     for doc in docs_to_show:
-        # ТЕПЕРЬ ГЛАВНОЕ: используем about как текст ссылки
-        # Если about вдруг пустой, берем имя файла
         display_name = doc.about or doc.document_name or "Документ"
         safe_name = html.escape(display_name)
 
-        # Формируем строку
         if link_prefix:
             url = f"{link_prefix}/{doc.message_id}"
             item = f"📄 <a href='{url}'><b>{safe_name}</b></a>"

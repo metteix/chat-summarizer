@@ -39,16 +39,14 @@ async def get_mentions_handler(message: types.Message):
         model_class=Mention
     )
 
-    # 3. Обработка ошибки
     if mentions_to_show is None:
-        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        await status_msg.edit_text("⚠️ Временная ошибка Gemini. Попробуй через минуту.")
         return
 
     if not mentions_to_show:
-        await status_msg.edit_text("🤷‍♂️ Упоминания были, но ничего важного (просто флуд).")
+        await status_msg.edit_text("🤷‍♂️ Упоминания были, но ничего важного.")
         return
 
-    # --- ЛОГИКА ГРУППИРОВКИ И ВЫВОДА ---
     grouped_mentions = {}
     clean_chat_id = str(message.chat.id).replace("-100", "")
 
@@ -56,14 +54,12 @@ async def get_mentions_handler(message: types.Message):
         tag = m.mention
         url = f"https://t.me/c/{clean_chat_id}/{m.message_id}"
 
-        # Берем описание или контекст
         raw_label = m.about or m.context or "Сообщение"
         safe_label = html.escape(raw_label)
 
         if tag not in grouped_mentions:
             grouped_mentions[tag] = []
 
-        # Сохраняем пару
         grouped_mentions[tag].append((url, safe_label))
 
     text = "<b>🔔 Важные упоминания за 24 часа:</b>\n\n"

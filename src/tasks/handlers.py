@@ -39,19 +39,16 @@ async def get_tasks_handler(message: types.Message):
         model_class=Task
     )
 
-    # 3. Обработка ошибки
     if tasks_to_show is None:
-        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        await status_msg.edit_text("⚠️ Временная ошибка Gemini. Попробуй через минуту.")
         return
 
     if not tasks_to_show:
         await status_msg.edit_text("🤷‍♂️ Похоже, это были просто обсуждения, а не реальные задачи.")
         return
 
-    # 5. Формируем вывод (ссылочные сообщения)
     text = "<b>📋 Актуальные задачи за сутки:</b>\n\n"
 
-    # Подготовка префикса для ссылки
     chat_id_str = str(message.chat.id)
     link_prefix = None
 
@@ -62,17 +59,13 @@ async def get_tasks_handler(message: types.Message):
         link_prefix = f"https://t.me/c/{clean_id}"
 
     for task in tasks_to_show:
-        # Берем умное описание от ML (оно должно содержать дедлайн, если был)
-        # Если вдруг пусто, берем оригинальный текст
         raw_content = task.about or task.task_name or "Задача"
         safe_content = html.escape(raw_content)
 
-        # Формируем кликабельную строку
         if link_prefix:
             url = f"{link_prefix}/{task.message_id}"
             item = f"▫️ <a href='{url}'>{safe_content}</a>"
         else:
-            # Если это приватный чат без юзернейма, ссылку сделать сложно, выводим просто текст
             item = f"▫️ {safe_content}"
 
         text += item + "\n\n"

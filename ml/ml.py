@@ -1,11 +1,8 @@
 from typing import List, Any, Literal
-# Заменяем импорт
 from langchain_google_genai import ChatGoogleGenerativeAI
 from pydantic import BaseModel, Field
 
 
-
-# --- Модели ответа ---
 class ItemAnalysis(BaseModel):
     id: int = Field(description="ID объекта из базы")
     is_important: bool = Field(description="True, если это важно для учебы/работы. False, если спам/оффтоп.")
@@ -18,15 +15,12 @@ class BatchAnalysis(BaseModel):
 
 
 llm = ChatGoogleGenerativeAI(
-    model="gemini-1.5-flash",
+    model="gemini-2.5-flash",
     temperature=0,
-    # convert_system_message_to_human=True # Иногда полезно для старых моделей Gemini
 )
 
-# Метод with_structured_output поддерживается в актуальных версиях langchain-google-genai
 structured_llm = llm.with_structured_output(BatchAnalysis)
 
-# --- УНИКАЛЬНЫЕ ИНСТРУКЦИИ (ПРОМПТЫ) ---
 PROMPTS = {
     "link": """
     Ты помощник студента. Твоя задача — отфильтровать список ССЫЛОК из чата.
@@ -129,10 +123,8 @@ async def analyze_items(
     if not items:
         return []
 
-    # 1. Формируем список для анализа
     input_lines = []
     for item in items:
-        # Унификация полей (так как у Link поле url, у Doc поле document_name)
         main_content = ""
         if item_type == "link":
             main_content = item.url
@@ -149,16 +141,13 @@ async def analyze_items(
 
     text_block = "\n".join(input_lines)
 
-    # 2. Выбираем ПРАВИЛЬНЫЙ промпт
     system_prompt = PROMPTS.get(item_type, "Filter specific important items.")
 
     full_prompt = f"{system_prompt}\n\nList to analyze:\n{text_block}"
 
     try:
-        # 3. Запрос
         result = await structured_llm.ainvoke(full_prompt)
 
-        # 4. Мэппинг результатов
         verdict_map = {v.id: v for v in result.items}
         filtered = []
 
