@@ -59,6 +59,7 @@ async def update_settings_field(chat_id: int, **kwargs):
             update(Chat).where(Chat.chat_id == chat_id).values(**kwargs)
         )
         await session.commit()
+
 async def get_daily_data(chat_id: int):
     """
     Собирает все данные по конкретному чату за последние 24 часа.
@@ -89,3 +90,18 @@ async def get_daily_data(chat_id: int):
             "links": links_q.scalars().all(),
             "documents": docs_q.scalars().all(),
         }
+
+
+async def save_analysis_results(model, analysis_results: list[dict]):
+    """
+    Сохраняет результаты анализа (is_important) для различных моделей.
+    Принимает модель (например, Task, Link) и список словарей с id и is_important.
+    """
+    async with async_session() as session:
+        for item_data in analysis_results:
+            await session.execute(
+                update(model)
+                .where(model.id == item_data['id'])
+                .values(is_important=item_data['is_important'])
+            )
+        await session.commit()

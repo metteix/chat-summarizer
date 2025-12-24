@@ -5,7 +5,10 @@ from database.models import Document
 import datetime
 import html
 
+from ml.services import process_items_pipeline
+
 router = Router()
+
 
 async def get_daily_documents(chat_id: int) -> list[Document]:
     yesterday = datetime.datetime.now() - datetime.timedelta(days=1)
@@ -15,46 +18,64 @@ async def get_daily_documents(chat_id: int) -> list[Document]:
             Document.chat_id == chat_id,
             Document.created_at >= yesterday
         ).order_by(Document.created_at.desc())
-        
+
         result = await session.execute(query)
         return result.scalars().all()
 
 
 @router.message(F.text == "/docs")
 async def get_documents_handler(message: types.Message):
-    docs_to_display = await get_daily_documents(chat_id=message.chat.id)
+    # 1. Получаем все документы
+    all_docs = await get_daily_documents(chat_id=message.chat.id)
 
-    if docs_to_display:
-        text = "<b>📂 Документы за последние сутки:</b>\n\n"
+    if not all_docs:
+        await message.answer("📭 Документов за последние сутки не было.")
+        return
 
-        chat_id_str = str(message.chat.id)
-        link_prefix = None
+    status_msg = await message.answer("🔎 Анализирую файлы...")
 
-        if message.chat.username:
-            link_prefix = f"https://t.me/{message.chat.username}"
+    docs_to_show = await process_items_pipeline(
+        all_items=all_docs,
+        item_type="doc",  # Какой промпт брать
+        model_class=Document  # В какую таблицу сохранять
+    )
 
-        elif chat_id_str.startswith("-100"):
-            clean_id = chat_id_str[4:] 
-            link_prefix = f"https://t.me/c/{clean_id}"
+    # 3. Обработка ошибки
+    if docs_to_show is None:
+        await status_msg.edit_text("⚠️ Временная ошибка мозга (OpenAI). Попробуй через минуту.")
+        return
 
-        for doc in docs_to_display:
-            raw_name = doc.document_name or "Без названия"
-            safe_name = html.escape(raw_name)
 
-            if link_prefix:
-                url = f"{link_prefix}/{doc.message_id}"
-                item = f"📄 <a href='{url}'><b>{safe_name}</b></a>"
-            else:
-                item = f"📄 <b>{safe_name}</b>"
+    if not docs_to_show:
+        await status_msg.edit_text("🤷‍♂️ Файлы были, но ничего важного (мемы или стикеры).")
+        return
 
-            if doc.context:
-                safe_context = html.escape(doc.context)
-                if len(safe_context) > 50:
-                    safe_context = safe_context[:50] + "..."
-                item += f"\n└ <i>{safe_context}</i>"
+    # 5. Формируем вывод с сохранением логики ссылок
+    text = "<b>📂 Важные документы за сутки:</b>\n\n"
 
-            text += item + "\n\n"
+    # Логика формирования ссылки на сообщение (как было в старом коде)
+    chat_id_str = str(message.chat.id)
+    link_prefix = None
 
-        await message.answer(text, disable_web_page_preview=True)
-    else:
-        await message.answer("✅ Документов за последние 24 часа не найдено.")
+    if message.chat.username:
+        link_prefix = f"https://t.me/{message.chat.username}"
+    elif chat_id_str.startswith("-100"):
+        clean_id = chat_id_str[4:]
+        link_prefix = f"https://t.me/c/{clean_id}"
+
+    for doc in docs_to_show:
+        # ТЕПЕРЬ ГЛАВНОЕ: используем about как текст ссылки
+        # Если about вдруг пустой, берем имя файла
+        display_name = doc.about or doc.document_name or "Документ"
+        safe_name = html.escape(display_name)
+
+        # Формируем строку
+        if link_prefix:
+            url = f"{link_prefix}/{doc.message_id}"
+            item = f"📄 <a href='{url}'><b>{safe_name}</b></a>"
+        else:
+            item = f"📄 <b>{safe_name}</b>"
+
+        text += item + "\n\n"
+
+    await status_msg.edit_text(text, disable_web_page_preview=True, parse_mode="HTML")
