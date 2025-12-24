@@ -1,165 +1,126 @@
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock
 from types import SimpleNamespace
-import html
+from src.summary.handlers import cmd_summary
 
-from src.summary.handlers import summary_handler, format_summary, ml_filter_important
 
 @pytest.fixture
 def mock_message():
     msg = AsyncMock()
-    msg.chat = SimpleNamespace(id=12345)
+    msg.chat = AsyncMock()
+    msg.chat.id = 12345
+    msg.chat.username = "test_chat"
     msg.answer = AsyncMock()
+    msg.answer.return_value = AsyncMock()
     return msg
 
-# --- Основные тесты ---
 
 @pytest.mark.asyncio
-async def test_format_summary_no_data():
-    mock_chat = SimpleNamespace(
-        is_active=True,
-        include_tasks=True,
-        include_docs=True,
-        include_links=True,
-        include_mentions=True,
-        include_hashtags=True
+async def test_cmd_summary_no_settings(mock_message, monkeypatch):
+    async def fake_get_settings(chat_id):
+        return None
+
+    monkeypatch.setattr("src.summary.handlers.get_chat_settings", fake_get_settings)
+
+    await cmd_summary(mock_message)
+
+    mock_message.answer.assert_called_once_with("❌ Бот не активирован. Напишите /on")
+
+
+@pytest.mark.asyncio
+async def test_cmd_summary_no_data(mock_message, monkeypatch):
+    async def fake_get_settings(chat_id):
+        return SimpleNamespace(include_tasks=True)
+
+    async def fake_get_daily_data(chat_id):
+        return {"tasks": [], "links": []}
+
+    monkeypatch.setattr("src.summary.handlers.get_chat_settings", fake_get_settings)
+    monkeypatch.setattr("src.summary.handlers.get_daily_data", fake_get_daily_data)
+
+    await cmd_summary(mock_message)
+
+    mock_message.answer.assert_called_once_with("📭 За последние 24 часа данных не найдено.")
+
+
+@pytest.mark.asyncio
+async def test_cmd_summary_full_success(mock_message, monkeypatch):
+    fake_settings = SimpleNamespace(
+        include_tasks=True, include_links=True, include_docs=True,
+        include_mentions=True, include_hashtags=True
     )
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)), \
-         patch("src.summary.handlers.get_daily_items", AsyncMock(return_value=([], [], [], [], []))):
-        text = await format_summary(12345)
-        # Если данных нет, заголовка нет
-        assert text.startswith("✅ Нет данных для сводки")
-@pytest.mark.asyncio
-async def test_format_summary_with_data():
-    mock_chat = SimpleNamespace(
-        is_active=True,
-        include_tasks=True,
-        include_docs=True,
-        include_links=True,
-        include_mentions=True,
-        include_hashtags=True
-    )
 
-    # Мокаем данные с html и спецсимволами
-    TaskMock = SimpleNamespace(task_name="Сделать <тест>")
-    DocumentMock = SimpleNamespace(document_name="Документ &1")
-    LinkMock = SimpleNamespace(url="https://example.com")
-    MentionMock = SimpleNamespace(mention="@user")
-    HashtagMock = SimpleNamespace(hashtag="#hashtag")
+    fake_data = {
+        "tasks": [SimpleNamespace(message_id=1, task_name="Task 1", about=None)],
+        "links": [SimpleNamespace(url="https://test.com", about="Link 1")],
+        "documents": [SimpleNamespace(message_id=2, document_name="doc.pdf", about=None)],
+        "mentions": [SimpleNamespace(message_id=3, mention="@user", about=None)],
+        "hashtags": [SimpleNamespace(message_id=4, hashtag="#tag", about=None)]
+    }
 
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)), \
-         patch("src.summary.handlers.get_daily_items", AsyncMock(return_value=(
-             [TaskMock],
-             [DocumentMock],
-             [LinkMock],
-             [MentionMock],
-             [HashtagMock]
-         ))):
-        text = await format_summary(12345)
+    async def fake_get_settings(chat_id): return fake_settings
 
-        # Проверяем, что html-символы экранируются
-        assert "&lt;тест&gt;" in text
-        assert "&amp;1" in text
-        assert "Сделать" in text
-        assert "Документ" in text
-        assert "https://example.com" in text
-        assert "@user" in text
-        assert "#hashtag" in text
+    async def fake_get_daily_data(chat_id): return fake_data
+
+    async def fake_pipeline(items, item_type, model_class): return items
+
+    monkeypatch.setattr("src.summary.handlers.get_chat_settings", fake_get_settings)
+    monkeypatch.setattr("src.summary.handlers.get_daily_data", fake_get_daily_data)
+    monkeypatch.setattr("src.summary.handlers.process_items_pipeline", fake_pipeline)
+
+    await cmd_summary(mock_message)
+
+    status_msg = mock_message.answer.return_value
+    sent_text = status_msg.edit_text.call_args[0][0]
+
+    assert "📊 СВОДКА ЗА 24 ЧАСА" in sent_text
+    assert "Task 1" in sent_text
+    assert "https://test.com" in sent_text
+    assert "doc.pdf" in sent_text
+    assert "@user" in sent_text
+    assert "#tag" in sent_text
+    assert "https://t.me/test_chat/1" in sent_text
+
 
 @pytest.mark.asyncio
-async def test_summary_handler_calls_answer(mock_message):
-    with patch("src.summary.handlers.format_summary", AsyncMock(return_value="SUMMARY_TEXT")):
-        await summary_handler(mock_message)
-        mock_message.answer.assert_called_once_with("SUMMARY_TEXT", disable_web_page_preview=True)
+async def test_cmd_summary_pipeline_error(mock_message, monkeypatch):
+    fake_settings = SimpleNamespace(include_tasks=True, include_links=False, include_docs=False, include_mentions=False,
+                                    include_hashtags=False)
+    fake_data = {"tasks": [SimpleNamespace(message_id=1, task_name="Task", about=None)]}
+
+    async def fake_get_settings(chat_id): return fake_settings
+
+    async def fake_get_daily_data(chat_id): return fake_data
+
+    async def fake_pipeline_error(items, item_type, model_class): return None
+
+    monkeypatch.setattr("src.summary.handlers.get_chat_settings", fake_get_settings)
+    monkeypatch.setattr("src.summary.handlers.get_daily_data", fake_get_daily_data)
+    monkeypatch.setattr("src.summary.handlers.process_items_pipeline", fake_pipeline_error)
+
+    await cmd_summary(mock_message)
+
+    status_msg = mock_message.answer.return_value
+    assert "Временная ошибка Gemini" in status_msg.edit_text.call_args[0][0]
+
 
 @pytest.mark.asyncio
-async def test_format_summary_inactive_chat():
-    mock_chat = SimpleNamespace(is_active=False)
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)):
-        text = await format_summary(12345)
-        assert "Бот не активен" in text
+async def test_cmd_summary_all_filtered(mock_message, monkeypatch):
+    fake_settings = SimpleNamespace(include_tasks=True, include_links=False, include_docs=False, include_mentions=False,
+                                    include_hashtags=False)
+    fake_data = {"tasks": [SimpleNamespace(message_id=1, task_name="Noise", about=None)]}
 
-@pytest.mark.asyncio
-async def test_ml_filter_important_returns_same():
-    items = [1,2,3]
-    filtered = await ml_filter_important(items)
-    assert filtered == items
+    async def fake_get_settings(chat_id): return fake_settings
 
-# --- Крайние и логические тесты ---
+    async def fake_get_daily_data(chat_id): return fake_data
 
-@pytest.mark.asyncio
-async def test_format_summary_partial_settings():
-    mock_chat = SimpleNamespace(
-        is_active=True,
-        include_tasks=False,
-        include_docs=True,
-        include_links=False,
-        include_mentions=True,
-        include_hashtags=False
-    )
-    DocumentMock = SimpleNamespace(document_name="Документ1")
-    MentionMock = SimpleNamespace(mention="@user")
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)), \
-         patch("src.summary.handlers.get_daily_items", AsyncMock(return_value=([], [DocumentMock], [], [MentionMock], []))):
-        text = await format_summary(12345)
-        # Проверяем, что только включенные категории отображаются
-        assert "Документ1" in text
-        assert "@user" in text
-        assert "Задачи" not in text
-        assert "Ссылки" not in text
-        assert "#️⃣" not in text
+    async def fake_pipeline_empty(items, item_type, model_class): return []
 
-@pytest.mark.asyncio
-async def test_format_summary_with_none_values():
-    mock_chat = SimpleNamespace(
-        is_active=True,
-        include_tasks=True,
-        include_docs=True,
-        include_links=True,
-        include_mentions=True,
-        include_hashtags=True
-    )
-    TaskMock = SimpleNamespace(task_name=None)
-    DocumentMock = SimpleNamespace(document_name=None)
-    LinkMock = SimpleNamespace(url=None)
-    MentionMock = SimpleNamespace(mention=None)
-    HashtagMock = SimpleNamespace(hashtag=None)
+    monkeypatch.setattr("src.summary.handlers.get_chat_settings", fake_get_settings)
+    monkeypatch.setattr("src.summary.handlers.get_daily_data", fake_get_daily_data)
+    monkeypatch.setattr("src.summary.handlers.process_items_pipeline", fake_pipeline_empty)
 
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)), \
-         patch("src.summary.handlers.get_daily_items", AsyncMock(return_value=(
-             [TaskMock],
-             [DocumentMock],
-             [LinkMock],
-             [MentionMock],
-             [HashtagMock]
-         ))):
-        text = await format_summary(12345)
-        # Должны корректно отображаться "Без описания" или аналог
-        assert "Без описания" in text or "Без названия" in text
+    await cmd_summary(mock_message)
 
-@pytest.mark.asyncio
-async def test_summary_handler_includes_header(mock_message):
-    with patch("src.summary.handlers.format_summary", AsyncMock(return_value="📊 Сводка важного за сегодняшний день 📝\n\nDETAILS")):
-        await summary_handler(mock_message)
-        sent_text = mock_message.answer.call_args[0][0]
-        assert sent_text.startswith("📊 Сводка важного")
-        assert "DETAILS" in sent_text
-
-@pytest.mark.asyncio
-async def test_format_summary_with_some_data():
-    mock_chat = SimpleNamespace(
-        is_active=True,
-        include_tasks=True,
-        include_docs=False,
-        include_links=False,
-        include_mentions=False,
-        include_hashtags=False
-    )
-    TaskMock = SimpleNamespace(task_name="Сделать тест")
-
-    with patch("src.summary.handlers.get_chat_settings", AsyncMock(return_value=mock_chat)), \
-         patch("src.summary.handlers.get_daily_items", AsyncMock(return_value=([TaskMock], [], [], [], []))):
-        text = await format_summary(12345)
-        # Заголовок должен быть
-        assert text.startswith("📊 Сводка важного")
-        assert "Сделать тест" in text
+    status_msg = mock_message.answer.return_value
+    assert "нейросеть посчитала всё это неважным" in status_msg.edit_text.call_args[0][0]

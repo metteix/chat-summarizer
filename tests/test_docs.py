@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock
-from src.docs.handlers import get_documents_handler
 from types import SimpleNamespace
+from src.docs.handlers import get_documents_handler
+
 
 @pytest.fixture
 def mock_message():
@@ -9,27 +10,61 @@ def mock_message():
     msg.chat = AsyncMock()
     msg.chat.id = 12345
     msg.chat.username = "testchat"
+    msg.answer = AsyncMock()
+    # Настраиваем возврат значения для status_msg
+    msg.answer.return_value = AsyncMock()
     return msg
+
 
 @pytest.mark.asyncio
 async def test_get_documents_handler_with_docs(mock_message, monkeypatch):
+    # Данные для теста
     fake_docs = [
-        SimpleNamespace(message_id=1, document_name="doc1.pdf", context="Первый документ"),
-        SimpleNamespace(message_id=2, document_name="doc2.pdf", context="Второй документ")
+        SimpleNamespace(
+            message_id=1,
+            document_name="doc1.pdf",
+            about="Первый документ",
+            created_at=None
+        ),
+        SimpleNamespace(
+            message_id=2,
+            document_name="doc2.pdf",
+            about="Второй документ",
+            created_at=None
+        ),
     ]
 
+    # Мокаем функции получения данных и пайплайна
     async def fake_get_daily_documents(chat_id: int):
         return fake_docs
 
-    monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
+    async def fake_process_items_pipeline(all_items, item_type, model_class):
+        return all_items
 
+    monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
+    monkeypatch.setattr("src.docs.handlers.process_items_pipeline", fake_process_items_pipeline)
+
+    # Запуск хендлера
     await get_documents_handler(mock_message)
 
+    # 1. Проверяем, что ответ "Анализирую..." был отправлен один раз
     assert mock_message.answer.call_count == 1
-    sent_text = mock_message.answer.call_args[0][0]
-    for doc in fake_docs:
-        assert doc.document_name in sent_text
-        assert doc.context in sent_text
+    assert mock_message.answer.call_args[0][0] == "🔎 Анализирую файлы..."
+
+    # 2. Получаем объект сообщения, которое редактировалось (status_msg)
+    status_msg = mock_message.answer.return_value
+
+    # Проверяем, что edit_text был вызван
+    assert status_msg.edit_text.called
+    sent_text = status_msg.edit_text.call_args[0][0]
+
+    # 3. Проверяем содержимое финального текста
+    assert "<b>📂 Важные документы за сутки:</b>" in sent_text
+    assert "Первый документ" in sent_text
+    assert "Второй документ" in sent_text
+    assert "https://t.me/testchat/1" in sent_text
+    assert "https://t.me/testchat/2" in sent_text
+
 
 @pytest.mark.asyncio
 async def test_get_documents_handler_no_docs(mock_message, monkeypatch):
@@ -40,74 +75,67 @@ async def test_get_documents_handler_no_docs(mock_message, monkeypatch):
 
     await get_documents_handler(mock_message)
 
-    mock_message.answer.assert_called_once_with(
-        "✅ Документов за последние 24 часа не найдено."
-    )
+    mock_message.answer.assert_called_once_with("📭 Документов за последние сутки не было.")
+
 
 @pytest.mark.asyncio
-async def test_get_documents_handler_doc_without_context(mock_message, monkeypatch):
-    fake_docs = [
-        SimpleNamespace(message_id=1, document_name="doc1.pdf", context=None),
-        SimpleNamespace(message_id=2, document_name="doc2.pdf", context="Второй документ")
-    ]
+async def test_get_documents_handler_pipeline_error(mock_message, monkeypatch):
+    fake_docs = [SimpleNamespace(message_id=1, document_name="doc1.pdf", about="Документ", created_at=None)]
 
     async def fake_get_daily_documents(chat_id: int):
         return fake_docs
 
+    async def fake_process_items_pipeline(all_items, item_type, model_class):
+        return None
+
     monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
+    monkeypatch.setattr("src.docs.handlers.process_items_pipeline", fake_process_items_pipeline)
 
     await get_documents_handler(mock_message)
 
-    sent_text = mock_message.answer.call_args[0][0]
-    assert "doc1.pdf" in sent_text
-    assert "doc2.pdf" in sent_text
-    # Документ без контекста не должен ломать вывод
-    assert "Второй документ" in sent_text
+    status_msg = mock_message.answer.return_value
+    assert "Временная ошибка" in status_msg.edit_text.call_args[0][0]
+
 
 @pytest.mark.asyncio
-async def test_get_documents_handler_many_docs(mock_message, monkeypatch):
-    fake_docs = [SimpleNamespace(message_id=i, document_name=f"doc{i}.pdf", context=f"Документ {i}") for i in range(1, 51)]
+async def test_get_documents_handler_empty_after_filter(mock_message, monkeypatch):
+    fake_docs = [SimpleNamespace(message_id=1, document_name="doc1.pdf", about="Документ", created_at=None)]
 
     async def fake_get_daily_documents(chat_id: int):
         return fake_docs
 
+    async def fake_process_items_pipeline(all_items, item_type, model_class):
+        return []
+
     monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
+    monkeypatch.setattr("src.docs.handlers.process_items_pipeline", fake_process_items_pipeline)
 
     await get_documents_handler(mock_message)
 
-    sent_text = mock_message.answer.call_args[0][0]
-    # Проверяем, что первые и последние документы упомянуты
-    assert "doc1.pdf" in sent_text
-    assert "doc50.pdf" in sent_text
-    assert "Документ 1" in sent_text
-    assert "Документ 50" in sent_text
+    status_msg = mock_message.answer.return_value
+    assert "ничего важного" in status_msg.edit_text.call_args[0][0]
 
-# @pytest.mark.asyncio
-# async def test_get_documents_handler_long_text(mock_message, monkeypatch):
-#     # Создадим 200 документов с длинным контекстом, чтобы текст точно был большим
-#     fake_docs = [
-#         SimpleNamespace(
-#             message_id=i,
-#             document_name=f"doc{i}.pdf",
-#             context="Описание " + "x" * 50  # длинный текст
-#         )
-#         for i in range(1, 201)
-#     ]
-#
-#     async def fake_get_daily_documents(chat_id: int):
-#         return fake_docs
-#
-#     monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
-#
-#     await get_documents_handler(mock_message)
-#
-#     # Проверяем, что answer вызывался несколько раз (текст был разбит)
-#     assert mock_message.answer.call_count > 1
-#
-#     # Проверяем, что первые и последние документы попали хотя бы в одно из сообщений
-#     all_texts = [call[0][0] for call in mock_message.answer.call_args_list]
-#     combined_text = "\n".join(all_texts)
-#
-#     assert "doc1.pdf" in combined_text
-#     assert "doc200.pdf" in combined_text
-#     assert "Описание " in combined_text
+
+@pytest.mark.asyncio
+async def test_get_documents_handler_without_username(mock_message, monkeypatch):
+    # Тест случая без юзернейма (ссылка через -100...)
+    mock_message.chat.username = None
+    mock_message.chat.id = -1001234567890
+
+    fake_docs = [SimpleNamespace(message_id=42, document_name="doc.pdf", about="Документ", created_at=None)]
+
+    async def fake_get_daily_documents(chat_id: int):
+        return fake_docs
+
+    async def fake_process_items_pipeline(all_items, item_type, model_class):
+        return all_items
+
+    monkeypatch.setattr("src.docs.handlers.get_daily_documents", fake_get_daily_documents)
+    monkeypatch.setattr("src.docs.handlers.process_items_pipeline", fake_process_items_pipeline)
+
+    await get_documents_handler(mock_message)
+
+    status_msg = mock_message.answer.return_value
+    sent_text = status_msg.edit_text.call_args[0][0]
+
+    assert "https://t.me/c/1234567890/42" in sent_text
